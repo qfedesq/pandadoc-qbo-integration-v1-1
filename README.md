@@ -1,4 +1,4 @@
-# PandaDoc Embedded Invoice Factoring MVP
+# pandadoc-qbo-integration v1.4
 
 Repository baseline: `pandadoc-qbo-integration v1.3`
 
