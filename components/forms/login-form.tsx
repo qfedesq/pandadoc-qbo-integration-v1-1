@@ -9,7 +9,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-export function LoginForm({ googleEnabled = false }: { googleEnabled?: boolean }) {
+export function LoginForm({
+  googleEnabled = false,
+}: {
+  googleEnabled?: boolean;
+}) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -47,21 +51,32 @@ export function LoginForm({ googleEnabled = false }: { googleEnabled?: boolean }
 
   return (
     <div className="space-y-4">
-      {googleEnabled ? (
-        <>
+      <>
+        {googleEnabled ? (
           <form action="/api/auth/google/connect" method="post">
             <Button className="w-full" type="submit" variant="outline">
               <Chrome className="h-4 w-4" />
               Continue with Google
             </Button>
           </form>
-          <div className="flex items-center gap-3 text-xs uppercase tracking-[0.18em] text-muted-foreground">
-            <span className="h-px flex-1 bg-border" />
-            <span>Or use email and password</span>
-            <span className="h-px flex-1 bg-border" />
+        ) : (
+          <div className="space-y-2">
+            <Button className="w-full" type="button" variant="outline" disabled>
+              <Chrome className="h-4 w-4" />
+              Continue with Google
+            </Button>
+            <p className="text-xs text-muted-foreground">
+              Google sign-in appears here once this deployment has valid
+              `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` values.
+            </p>
           </div>
-        </>
-      ) : null}
+        )}
+        <div className="flex items-center gap-3 text-xs uppercase tracking-[0.18em] text-muted-foreground">
+          <span className="h-px flex-1 bg-border" />
+          <span>Or use email and password</span>
+          <span className="h-px flex-1 bg-border" />
+        </div>
+      </>
 
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="space-y-2">

@@ -5,6 +5,10 @@ import { NoticeBanner } from "@/components/notice-banner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { requireUser } from "@/lib/auth/require-user";
 import { getUserConnections } from "@/lib/db/integrations";
+import {
+  getProviderOauthConfigurationMessage,
+  isProviderOauthConfigured,
+} from "@/lib/providers/configuration";
 
 type Props = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
@@ -18,6 +22,8 @@ export default async function IntegrationsPage({ searchParams }: Props) {
   const quickBooks = connections.find(
     (connection) => connection.provider === "QUICKBOOKS",
   );
+  const pandaDocConfigured = isProviderOauthConfigured(Provider.PANDADOC);
+  const quickBooksConfigured = isProviderOauthConfigured(Provider.QUICKBOOKS);
 
   const notice = Array.isArray(query.notice) ? query.notice[0] : query.notice;
   const error = Array.isArray(query.error) ? query.error[0] : query.error;
@@ -39,8 +45,22 @@ export default async function IntegrationsPage({ searchParams }: Props) {
       <NoticeBanner error={error} notice={notice} />
 
       <div className="grid gap-5 lg:grid-cols-2">
-        <IntegrationCard connection={pandaDoc ?? null} provider={Provider.PANDADOC} />
-        <IntegrationCard connection={quickBooks ?? null} provider={Provider.QUICKBOOKS} />
+        <IntegrationCard
+          connection={pandaDoc ?? null}
+          provider={Provider.PANDADOC}
+          providerConfigured={pandaDocConfigured}
+          configurationMessage={getProviderOauthConfigurationMessage(
+            Provider.PANDADOC,
+          )}
+        />
+        <IntegrationCard
+          connection={quickBooks ?? null}
+          provider={Provider.QUICKBOOKS}
+          providerConfigured={quickBooksConfigured}
+          configurationMessage={getProviderOauthConfigurationMessage(
+            Provider.QUICKBOOKS,
+          )}
+        />
       </div>
 
       <Card>

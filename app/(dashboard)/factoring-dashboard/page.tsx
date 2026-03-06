@@ -3,6 +3,7 @@ import Link from "next/link";
 
 import { FactoringConnectionCard } from "@/components/factoring-connection-card";
 import { InvoiceFilters } from "@/components/invoice-filters";
+import { FactoringSetupGuide } from "@/components/factoring-setup-guide";
 import { InvoiceTable } from "@/components/invoice-table";
 import { SyncButton } from "@/components/sync-button";
 import { Button } from "@/components/ui/button";
@@ -16,6 +17,10 @@ import {
   getInvoiceSyncConfiguration,
   getNextInvoiceSyncAt,
 } from "@/lib/invoices/schedule";
+import {
+  getProviderOauthConfigurationMessage,
+  isProviderOauthConfigured,
+} from "@/lib/providers/configuration";
 import { formatDateTime } from "@/lib/utils";
 
 type SearchParams = {
@@ -52,6 +57,8 @@ export default async function FactoringDashboardPage({ searchParams }: Props) {
   const quickBooksConnected = quickBooksConnection?.status === "CONNECTED";
   const pandaDocConnected = pandaDocConnection?.status === "CONNECTED";
   const pandaDocImportEnabled = hasPandaDocImportConfig();
+  const pandaDocConfigured = isProviderOauthConfigured(Provider.PANDADOC);
+  const quickBooksConfigured = isProviderOauthConfigured(Provider.QUICKBOOKS);
   const nextScheduledSyncAt =
     quickBooksConnection && quickBooksConnected
       ? getNextInvoiceSyncAt(quickBooksConnection.lastSyncAt)
@@ -86,20 +93,37 @@ export default async function FactoringDashboardPage({ searchParams }: Props) {
         </div>
       </div>
 
+      <FactoringSetupGuide
+        pandaDocConnection={pandaDocConnection}
+        quickBooksConnection={quickBooksConnection}
+        pandaDocConfigured={pandaDocConfigured}
+        quickBooksConfigured={quickBooksConfigured}
+        providerMessages={{
+          pandaDoc: getProviderOauthConfigurationMessage(Provider.PANDADOC),
+          quickBooks: getProviderOauthConfigurationMessage(Provider.QUICKBOOKS),
+        }}
+      />
+
       <div className="grid gap-4 xl:grid-cols-2">
         <FactoringConnectionCard
+          provider={Provider.PANDADOC}
           label="PandaDoc account"
           description="Workspace identity used for future document and webhook-driven factoring workflows."
           connection={pandaDocConnection}
           metadataLabel="Workspace / account ID"
           metadataValue={pandaDocConnection?.externalAccountId ?? "—"}
+          providerConfigured={pandaDocConfigured}
+          configurationMessage={getProviderOauthConfigurationMessage(Provider.PANDADOC)}
         />
         <FactoringConnectionCard
+          provider={Provider.QUICKBOOKS}
           label="QuickBooks company"
           description="Source company for invoice import, outstanding balance checks, and payment-state refresh."
           connection={quickBooksConnection}
           metadataLabel="Realm ID"
           metadataValue={quickBooksConnection?.externalAccountId ?? "—"}
+          providerConfigured={quickBooksConfigured}
+          configurationMessage={getProviderOauthConfigurationMessage(Provider.QUICKBOOKS)}
         />
       </div>
 

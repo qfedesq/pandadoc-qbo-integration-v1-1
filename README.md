@@ -33,6 +33,7 @@ Primary demo actions:
 
 - sign in with Google or the seeded admin credentials
 - connect both integrations in `/integrations`
+- use the guided setup panel inside `/factoring-dashboard` to authorize PandaDoc and QuickBooks from one place
 - sync invoices from QuickBooks
 - filter and inspect imported invoices
 - click `Import to PandaDoc` for an invoice with payer email
@@ -49,6 +50,7 @@ The UI now adapts to the provided Protofire brand kit:
 - dark atmospheric surfaces with orange-led gradients inspired by the brandbook
 - productized login and dashboard surfaces instead of a neutral admin shell
 - fixed release badge in the lower-right corner using the current app version
+- in-dashboard setup guidance so non-technical users can authorize both providers without leaving the main workflow
 
 ## Local demo access
 
@@ -66,6 +68,8 @@ Default local demo sign-in from `.env.example`:
 - Password: `ChangeMe123!`
 
 If Google OAuth is configured with real credentials, the login page also shows `Continue with Google` and automatically provisions a local account for any verified Gmail user.
+
+If Google OAuth is not configured yet, the login page still shows the Google entry point in a disabled state so reviewers can see that the flow exists and what environment variables are still missing.
 
 These credentials are for local seeded development only. Production credentials, OAuth secrets, token encryption keys, and sync secrets must be provided through your real environment configuration and must never be committed.
 

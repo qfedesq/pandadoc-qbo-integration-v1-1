@@ -5,6 +5,7 @@ import { getCurrentSessionUser } from "@/lib/auth/session";
 import { createOAuthState } from "@/lib/db/integrations";
 import { logger } from "@/lib/logging/logger";
 import { buildQuickBooksAuthorizationUrl } from "@/lib/providers/quickbooks/oauth";
+import { sanitizeInternalRedirectPath } from "@/lib/security/internal-redirect";
 import { assertValidAppRequestOrigin } from "@/lib/security/origin";
 import { enforceRateLimit, getRequestIp } from "@/lib/security/rate-limit";
 import { getPublicError } from "@/lib/utils/errors";
@@ -18,6 +19,11 @@ export async function POST(request: Request) {
 
   try {
     assertValidAppRequestOrigin(request);
+    const formData = await request.formData();
+    const redirectTo = sanitizeInternalRedirectPath(
+      formData.get("redirectTo"),
+      "/integrations",
+    );
 
     const rateLimit = await enforceRateLimit({
       key: `oauth:connect:quickbooks:${getRequestIp(request)}`,
@@ -34,7 +40,7 @@ export async function POST(request: Request) {
     const oauthState = await createOAuthState({
       userId: user.id,
       provider: Provider.QUICKBOOKS,
-      redirectTo: "/integrations",
+      redirectTo,
     });
 
     return NextResponse.redirect(

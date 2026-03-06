@@ -22,9 +22,13 @@ type Connection = IntegrationConnection & {
 export function IntegrationCard({
   provider,
   connection,
+  providerConfigured,
+  configurationMessage,
 }: {
   provider: Provider;
   connection: Connection | null;
+  providerConfigured: boolean;
+  configurationMessage: string;
 }) {
   const isConnected = connection?.status === "CONNECTED";
   const connectHref =
@@ -73,13 +77,25 @@ export function IntegrationCard({
             {connection.lastError}
           </p>
         ) : null}
+        {!providerConfigured ? (
+          <p className="rounded-2xl border border-amber-300/30 bg-amber-400/10 px-3 py-2 text-amber-50">
+            {configurationMessage}
+          </p>
+        ) : null}
       </CardContent>
       <CardFooter className="justify-between">
-        <form action={connectHref} method="post">
-          <Button type="submit" variant={isConnected ? "secondary" : "default"}>
-            {isConnected ? "Reconnect" : "Connect"}
+        {providerConfigured ? (
+          <form action={connectHref} method="post">
+            <input type="hidden" name="redirectTo" value="/integrations" />
+            <Button type="submit" variant={isConnected ? "secondary" : "default"}>
+              {isConnected ? "Reconnect" : "Connect"}
+            </Button>
+          </form>
+        ) : (
+          <Button type="button" variant="outline" disabled>
+            Credentials pending
           </Button>
-        </form>
+        )}
         {connection ? (
           <form
             action={`/api/integrations/${provider.toLowerCase()}/disconnect`}
