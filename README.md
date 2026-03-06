@@ -1,6 +1,45 @@
 # pandadoc-qbo-integration
 
+![Next.js 15](https://img.shields.io/badge/Next.js-15-black)
+![TypeScript Strict](https://img.shields.io/badge/TypeScript-strict-3178C6)
+![Prisma + Postgres](https://img.shields.io/badge/Prisma-Postgres-2D3748)
+![Playwright Smoke Tested](https://img.shields.io/badge/Playwright-smoke--tested-45BA63)
+![Demo Ready](https://img.shields.io/badge/Status-demo--ready-0F766E)
+
 Production-ready foundation for connecting PandaDoc and QuickBooks Online, importing outstanding QuickBooks invoices, and preparing future cross-system workflows.
+
+## Demo summary
+
+This repository demonstrates a complete PandaDoc + QuickBooks Online integration workflow:
+
+- connect PandaDoc with OAuth 2.0
+- connect QuickBooks Online with OAuth 2.0
+- import outstanding QuickBooks invoices into an internal normalized model
+- review them in a dedicated PandaDoc Factoring Dashboard
+- push a selected invoice into PandaDoc as a document created from template
+- keep PandaDoc document state updated through webhooks
+
+Primary demo route:
+
+- `/factoring-dashboard`
+
+Primary demo actions:
+
+- connect both integrations in `/integrations`
+- sync invoices from QuickBooks
+- filter and inspect imported invoices
+- click `Import to PandaDoc` for an invoice with payer email
+
+## Demo flow
+
+For a reviewer or stakeholder demo, the shortest path is:
+
+1. Sign in at `/login`
+2. Open `/integrations` and verify PandaDoc and QuickBooks connection status
+3. Open `/factoring-dashboard`
+4. Click `Sync now` to refresh outstanding invoices from QuickBooks
+5. Filter by status, search by invoice id or counterparty, and inspect last sync timestamps
+6. Import an invoice to PandaDoc from the dashboard and verify the PandaDoc document status badge updates after webhook delivery
 
 ## Architecture overview
 
