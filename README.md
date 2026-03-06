@@ -72,6 +72,13 @@ The demo is designed to support a first commercial conversation with PandaDoc:
 - `tests/`
   unit and integration coverage for critical flows
 
+### Deployment safety
+
+- Vercel builds run through `npm run build:vercel`
+- the build script runs `prisma generate`, then `prisma migrate deploy`, then `next build`
+- migrations prefer `DATABASE_URL_UNPOOLED`, then `POSTGRES_URL_NON_POOLING`, then `DATABASE_URL`
+- if the migration step fails, the deployment fails instead of shipping a schema/runtime mismatch
+
 ### Product surfaces
 
 - Public:
@@ -261,11 +268,13 @@ Minimum local demo variables:
 
 - `APP_BASE_URL`
 - `DATABASE_URL`
+- `DATABASE_URL_UNPOOLED` for direct production migrations on Vercel
 - `DEFAULT_ADMIN_EMAIL`
 - `DEFAULT_ADMIN_PASSWORD`
 - `SESSION_COOKIE_NAME`
 - `SESSION_TTL_HOURS`
 - `TOKEN_ENCRYPTION_KEY`
+- `SKIP_VERCEL_MIGRATIONS`
 - `CRON_SECRET`
 - `INTERNAL_SYNC_SECRET`
 - `PANDADOC_MODE`
@@ -296,6 +305,12 @@ Important migration additions in this iteration:
 - user roles
 - query indexes for invoices, transactions, audit events, and pool activity
 - partial unique index to prevent multiple active positions on the same invoice
+
+Vercel deployment rule:
+
+- keep `DATABASE_URL_UNPOOLED` or `POSTGRES_URL_NON_POOLING` configured in Production
+- Vercel now runs `prisma migrate deploy` automatically during build via `npm run build:vercel`
+- do not disable this with `SKIP_VERCEL_MIGRATIONS=true` unless migrations are handled by a separate release step
 
 ## API surface
 

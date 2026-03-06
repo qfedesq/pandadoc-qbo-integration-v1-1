@@ -1,6 +1,6 @@
 {
-  "name": "pandadoc-qbo-integration-v1-10",
-  "version": "1.10.0",
+  "name": "pandadoc-qbo-integration-v1-12",
+  "version": "1.12.0",
   "private": true,
   "type": "module",
   "engines": {
@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "prisma generate && next build",
+    "build:vercel": "node --import tsx scripts/vercel-build.ts",
     "start": "next start",
     "lint": "eslint . --max-warnings=0",
     "format": "prettier --write .",
