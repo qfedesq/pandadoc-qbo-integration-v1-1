@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { ZodError } from "zod";
 
 export class AppError extends Error {
@@ -34,6 +35,14 @@ export function getPublicError(error: unknown) {
       message: "Invalid request payload.",
       statusCode: 400,
       code: "INVALID_REQUEST",
+    };
+  }
+
+  if (error instanceof Prisma.PrismaClientInitializationError) {
+    return {
+      message: "Service temporarily unavailable. The application database is not reachable.",
+      statusCode: 503,
+      code: "DATABASE_UNAVAILABLE",
     };
   }
 
