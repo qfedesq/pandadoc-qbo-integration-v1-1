@@ -1,19 +1,19 @@
-import { NextResponse } from "next/server";
-
 import { destroyCurrentSession } from "@/lib/auth/session";
-import { assertValidAppRequestOrigin } from "@/lib/security/origin";
-import { getPublicError } from "@/lib/utils/errors";
+import {
+  getRequestContext,
+  guardApiMutation,
+  handleApiError,
+  redirectNoStore,
+} from "@/lib/server/http";
 
 export async function POST(request: Request) {
+  const requestContext = getRequestContext(request);
+
   try {
-    assertValidAppRequestOrigin(request);
+    await guardApiMutation(request);
     await destroyCurrentSession();
-    return NextResponse.redirect(new URL("/login", request.url), 303);
+    return redirectNoStore(new URL("/login", request.url), 303);
   } catch (error) {
-    const publicError = getPublicError(error);
-    return NextResponse.json(
-      { error: publicError.message, code: publicError.code },
-      { status: publicError.statusCode },
-    );
+    return handleApiError("auth.logout_failed", error, requestContext);
   }
 }

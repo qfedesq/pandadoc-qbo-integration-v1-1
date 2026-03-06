@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { FactoringTransactionStatus } from "@prisma/client";
 
 import { Button } from "@/components/ui/button";
+import { buildCsrfHeaders } from "@/lib/security/csrf-client";
 
 export function FactoringTransactionActions({
   transactionId,
@@ -21,17 +22,25 @@ export function FactoringTransactionActions({
     setMessage(null);
 
     startTransition(async () => {
-      const response = await fetch(
-        `/api/factoring/transactions/${transactionId}/${action}`,
-        {
-          method: "POST",
-        },
-      );
+      let response: Response;
+
+      try {
+        response = await fetch(
+          `/api/factoring/transactions/${transactionId}/${action}`,
+          {
+            method: "POST",
+            headers: buildCsrfHeaders(),
+          },
+        );
+      } catch {
+        setMessage("Unable to reach the server. Try again.");
+        return;
+      }
 
       if (!response.ok) {
-        const responseBody = (await response.json().catch(() => null)) as
-          | { error?: string }
-          | null;
+        const responseBody = (await response.json().catch(() => null)) as {
+          error?: string;
+        } | null;
         setMessage(responseBody?.error ?? "Unable to update the transaction.");
         return;
       }
@@ -67,7 +76,11 @@ export function FactoringTransactionActions({
           </Button>
         ) : null}
       </div>
-      {message ? <p className="text-sm text-muted-foreground">{message}</p> : null}
+      {message ? (
+        <p aria-live="polite" className="text-sm text-muted-foreground">
+          {message}
+        </p>
+      ) : null}
     </div>
   );
 }

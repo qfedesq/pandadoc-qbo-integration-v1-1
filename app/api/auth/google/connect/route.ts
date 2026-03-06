@@ -4,30 +4,31 @@ import { AuthIdentityProvider } from "@prisma/client";
 import { createAuthLoginState } from "@/lib/db/auth";
 import { logger } from "@/lib/logging/logger";
 import { buildGoogleAuthorizationUrl } from "@/lib/providers/google/oauth";
-import { assertValidAppRequestOrigin } from "@/lib/security/origin";
-import { enforceRateLimit, getRequestIp } from "@/lib/security/rate-limit";
+import { sanitizeInternalRedirectPath } from "@/lib/security/internal-redirect";
+import { getRequestContext, guardApiMutation } from "@/lib/server/http";
 import { getPublicError } from "@/lib/utils/errors";
 
 export async function POST(request: Request) {
-  try {
-    assertValidAppRequestOrigin(request);
+  const requestContext = getRequestContext(request);
 
-    const rateLimit = await enforceRateLimit({
-      key: `auth:google:connect:${getRequestIp(request)}`,
-      limit: 20,
-      windowMs: 60_000,
+  try {
+    await guardApiMutation(request, {
+      rateLimit: {
+        key: `auth:google:connect:${requestContext.ip}`,
+        limit: 20,
+        windowMs: 60_000,
+      },
     });
 
-    if (!rateLimit.allowed) {
-      return NextResponse.redirect(
-        new URL("/login?error=Rate%20limit%20reached", request.url),
-        303,
-      );
-    }
+    const formData = await request.formData();
+    const redirectTo = sanitizeInternalRedirectPath(
+      formData.get("redirectTo"),
+      "/factoring-dashboard",
+    );
 
     const authState = await createAuthLoginState({
       provider: AuthIdentityProvider.GOOGLE,
-      redirectTo: "/factoring-dashboard",
+      redirectTo,
     });
 
     return NextResponse.redirect(
@@ -35,10 +36,13 @@ export async function POST(request: Request) {
       303,
     );
   } catch (error) {
-    logger.error("google.connect_failed", { error });
+    logger.error("google.connect_failed", { ...requestContext, error });
     const publicError = getPublicError(error);
     return NextResponse.redirect(
-      new URL(`/login?error=${encodeURIComponent(publicError.message)}`, request.url),
+      new URL(
+        `/login?error=${encodeURIComponent(publicError.message)}`,
+        request.url,
+      ),
       303,
     );
   }

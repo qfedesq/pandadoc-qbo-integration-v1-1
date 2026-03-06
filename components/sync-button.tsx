@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { RefreshCcw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { buildCsrfHeaders } from "@/lib/security/csrf-client";
 
 export function SyncButton({
   disabled = false,
@@ -28,14 +29,16 @@ export function SyncButton({
         Boolean(payload?.connectionId) || typeof payload?.force === "boolean";
       const response = await fetch("/api/invoices/sync", {
         method: "POST",
-        headers: hasPayload ? { "Content-Type": "application/json" } : undefined,
+        headers: hasPayload
+          ? buildCsrfHeaders({ "Content-Type": "application/json" })
+          : buildCsrfHeaders(),
         body: hasPayload ? JSON.stringify(payload) : undefined,
       });
 
       if (!response.ok) {
-        const errorPayload = (await response.json().catch(() => null)) as
-          | { error?: string }
-          | null;
+        const errorPayload = (await response.json().catch(() => null)) as {
+          error?: string;
+        } | null;
         setMessage(errorPayload?.error ?? "Sync failed.");
         return;
       }
@@ -59,7 +62,9 @@ export function SyncButton({
         <RefreshCcw className="h-4 w-4" />
         {isPending ? "Syncing..." : "Sync now"}
       </Button>
-      {message ? <p className="text-sm text-muted-foreground">{message}</p> : null}
+      {message ? (
+        <p className="text-sm text-muted-foreground">{message}</p>
+      ) : null}
     </div>
   );
 }

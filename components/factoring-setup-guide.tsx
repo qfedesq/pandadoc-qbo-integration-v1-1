@@ -1,5 +1,6 @@
 import { Provider, type IntegrationConnection } from "@prisma/client";
 
+import { CsrfHiddenInput } from "@/components/csrf-hidden-input";
 import { SyncButton } from "@/components/sync-button";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
@@ -41,6 +42,7 @@ function ProviderConnectAction({
 
   return (
     <form action={action} method="post">
+      <CsrfHiddenInput />
       <input type="hidden" name="redirectTo" value={redirectTo} />
       <Button type="submit" variant={connected ? "secondary" : "default"}>
         {connected ? `Reconnect ${label}` : `Connect ${label}`}
@@ -65,7 +67,7 @@ function SetupStep({
   detail: string;
 }) {
   return (
-    <div className="rounded-[1.35rem] border border-white/12 bg-white/6 p-5">
+    <div className="border-white/12 bg-white/6 rounded-[1.35rem] border p-5">
       <div className="flex items-start justify-between gap-4">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-300">
@@ -100,12 +102,13 @@ export function FactoringSetupGuide({
 }) {
   const pandaDocConnected = pandaDocConnection?.status === "CONNECTED";
   const quickBooksConnected = quickBooksConnection?.status === "CONNECTED";
-  const quickBooksAccountName = getQuickBooksConnectionDisplayName(quickBooksConnection);
+  const quickBooksAccountName =
+    getQuickBooksConnectionDisplayName(quickBooksConnection);
   const bridgeReady = pandaDocConnected && quickBooksConnected;
   const redirectTo = "/factoring-dashboard";
 
   return (
-    <Card className="protofire-hero relative overflow-hidden border border-white/12">
+    <Card className="protofire-hero border-white/12 relative overflow-hidden border">
       <CardHeader className="relative">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
           <div className="space-y-2">
@@ -122,7 +125,7 @@ export function FactoringSetupGuide({
               same workspace.
             </p>
           </div>
-          <div className="w-fit rounded-full border border-white/12 bg-white/8 px-4 py-2 text-sm font-medium text-slate-100">
+          <div className="border-white/12 bg-white/8 w-fit rounded-full border px-4 py-2 text-sm font-medium text-slate-100">
             {bridgeReady
               ? "Ready: invoices can be imported and funded"
               : "Complete both connections to unlock invoice funding"}

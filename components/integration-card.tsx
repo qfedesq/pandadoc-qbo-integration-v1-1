@@ -1,5 +1,6 @@
 import { Provider, type IntegrationConnection } from "@prisma/client";
 
+import { CsrfHiddenInput } from "@/components/csrf-hidden-input";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -36,7 +37,7 @@ export function IntegrationCard({
   const accountName =
     provider === "QUICKBOOKS"
       ? getQuickBooksConnectionDisplayName(connection)
-      : connection?.externalAccountName ?? null;
+      : (connection?.externalAccountName ?? null);
   const connectHref =
     provider === "PANDADOC"
       ? "/api/oauth/pandadoc/connect"
@@ -47,7 +48,9 @@ export function IntegrationCard({
       <CardHeader>
         <div className="flex items-center justify-between gap-4">
           <div>
-            <CardTitle>{provider === "PANDADOC" ? "PandaDoc" : "QuickBooks Online"}</CardTitle>
+            <CardTitle>
+              {provider === "PANDADOC" ? "PandaDoc" : "QuickBooks Online"}
+            </CardTitle>
             <CardDescription>
               {provider === "PANDADOC"
                 ? "Connect the workspace where invoice documents and financing actions stay inside PandaDoc."
@@ -75,7 +78,9 @@ export function IntegrationCard({
         <p>
           Last sync:{" "}
           <span className="font-medium text-foreground">
-            {connection?.lastSyncAt ? formatDate(connection.lastSyncAt) : "Never"}
+            {connection?.lastSyncAt
+              ? formatDate(connection.lastSyncAt)
+              : "Never"}
           </span>
         </p>
         {connection?.lastError ? (
@@ -92,8 +97,12 @@ export function IntegrationCard({
       <CardFooter className="justify-between">
         {providerConfigured ? (
           <form action={connectHref} method="post">
+            <CsrfHiddenInput />
             <input type="hidden" name="redirectTo" value="/integrations" />
-            <Button type="submit" variant={isConnected ? "secondary" : "default"}>
+            <Button
+              type="submit"
+              variant={isConnected ? "secondary" : "default"}
+            >
               {isConnected
                 ? "Reconnect"
                 : provider === "QUICKBOOKS" && isQuickBooksMockMode()
@@ -111,6 +120,7 @@ export function IntegrationCard({
             action={`/api/integrations/${provider.toLowerCase()}/disconnect`}
             method="post"
           >
+            <CsrfHiddenInput />
             <Button type="submit" variant="outline">
               Disconnect
             </Button>

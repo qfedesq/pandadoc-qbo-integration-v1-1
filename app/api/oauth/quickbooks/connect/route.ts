@@ -2,17 +2,20 @@ import { NextResponse } from "next/server";
 import { Provider } from "@prisma/client";
 
 import { getCurrentSessionUser } from "@/lib/auth/session";
-import { createOAuthState, upsertQuickBooksConnection } from "@/lib/db/integrations";
+import {
+  createOAuthState,
+  upsertQuickBooksConnection,
+} from "@/lib/db/integrations";
 import { isQuickBooksMockMode } from "@/lib/env";
 import { logger } from "@/lib/logging/logger";
 import { getMockQuickBooksCompanyInfo } from "@/lib/providers/quickbooks/mock";
 import { buildQuickBooksAuthorizationUrl } from "@/lib/providers/quickbooks/oauth";
 import { sanitizeInternalRedirectPath } from "@/lib/security/internal-redirect";
-import { assertValidAppRequestOrigin } from "@/lib/security/origin";
-import { enforceRateLimit, getRequestIp } from "@/lib/security/rate-limit";
+import { getRequestContext, guardApiMutation } from "@/lib/server/http";
 import { getPublicError } from "@/lib/utils/errors";
 
 export async function POST(request: Request) {
+  const requestContext = getRequestContext(request);
   const user = await getCurrentSessionUser();
 
   if (!user) {
@@ -20,7 +23,14 @@ export async function POST(request: Request) {
   }
 
   try {
-    assertValidAppRequestOrigin(request);
+    await guardApiMutation(request, {
+      rateLimit: {
+        key: `oauth:connect:quickbooks:${requestContext.ip}`,
+        limit: 20,
+        windowMs: 60_000,
+      },
+    });
+
     const formData = await request.formData();
     const redirectTo = sanitizeInternalRedirectPath(
       formData.get("redirectTo"),
@@ -58,18 +68,6 @@ export async function POST(request: Request) {
       );
     }
 
-    const rateLimit = await enforceRateLimit({
-      key: `oauth:connect:quickbooks:${getRequestIp(request)}`,
-      limit: 20,
-      windowMs: 60_000,
-    });
-
-    if (!rateLimit.allowed) {
-      return NextResponse.redirect(
-        new URL("/integrations?error=Rate%20limit%20reached", request.url),
-      );
-    }
-
     const oauthState = await createOAuthState({
       userId: user.id,
       provider: Provider.QUICKBOOKS,
@@ -81,7 +79,7 @@ export async function POST(request: Request) {
       303,
     );
   } catch (error) {
-    logger.error("quickbooks.connect_failed", { error });
+    logger.error("quickbooks.connect_failed", { ...requestContext, error });
     const publicError = getPublicError(error);
     return NextResponse.redirect(
       new URL(

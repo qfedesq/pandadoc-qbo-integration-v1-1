@@ -2,17 +2,20 @@ import { NextResponse } from "next/server";
 import { Provider } from "@prisma/client";
 
 import { getCurrentSessionUser } from "@/lib/auth/session";
-import { createOAuthState, upsertPandaDocConnection } from "@/lib/db/integrations";
+import {
+  createOAuthState,
+  upsertPandaDocConnection,
+} from "@/lib/db/integrations";
 import { isPandaDocMockMode } from "@/lib/env";
 import { logger } from "@/lib/logging/logger";
 import { getMockPandaDocMember } from "@/lib/providers/pandadoc/mock";
 import { buildPandaDocAuthorizationUrl } from "@/lib/providers/pandadoc/oauth";
 import { sanitizeInternalRedirectPath } from "@/lib/security/internal-redirect";
-import { assertValidAppRequestOrigin } from "@/lib/security/origin";
-import { enforceRateLimit, getRequestIp } from "@/lib/security/rate-limit";
+import { getRequestContext, guardApiMutation } from "@/lib/server/http";
 import { getPublicError } from "@/lib/utils/errors";
 
 export async function POST(request: Request) {
+  const requestContext = getRequestContext(request);
   const user = await getCurrentSessionUser();
 
   if (!user) {
@@ -20,7 +23,14 @@ export async function POST(request: Request) {
   }
 
   try {
-    assertValidAppRequestOrigin(request);
+    await guardApiMutation(request, {
+      rateLimit: {
+        key: `oauth:connect:pandadoc:${requestContext.ip}`,
+        limit: 20,
+        windowMs: 60_000,
+      },
+    });
+
     const formData = await request.formData();
     const redirectTo = sanitizeInternalRedirectPath(
       formData.get("redirectTo"),
@@ -31,9 +41,13 @@ export async function POST(request: Request) {
       const member = getMockPandaDocMember();
       await upsertPandaDocConnection({
         userId: user.id,
-        accountId: member.user_id ?? member.membership_id ?? member.id ?? "pd_user_demo",
-        displayName: [member.first_name, member.last_name].filter(Boolean).join(" "),
-        accountName: member.workspace_name ?? member.email ?? "PandaDoc Demo Workspace",
+        accountId:
+          member.user_id ?? member.membership_id ?? member.id ?? "pd_user_demo",
+        displayName: [member.first_name, member.last_name]
+          .filter(Boolean)
+          .join(" "),
+        accountName:
+          member.workspace_name ?? member.email ?? "PandaDoc Demo Workspace",
         metadata: {
           mode: "mock",
           provider: "pandadoc-demo-adapter",
@@ -61,18 +75,6 @@ export async function POST(request: Request) {
       );
     }
 
-    const rateLimit = await enforceRateLimit({
-      key: `oauth:connect:pandadoc:${getRequestIp(request)}`,
-      limit: 20,
-      windowMs: 60_000,
-    });
-
-    if (!rateLimit.allowed) {
-      return NextResponse.redirect(
-        new URL("/integrations?error=Rate%20limit%20reached", request.url),
-      );
-    }
-
     const oauthState = await createOAuthState({
       userId: user.id,
       provider: Provider.PANDADOC,
@@ -84,7 +86,7 @@ export async function POST(request: Request) {
       303,
     );
   } catch (error) {
-    logger.error("pandadoc.connect_failed", { error });
+    logger.error("pandadoc.connect_failed", { ...requestContext, error });
     const publicError = getPublicError(error);
     return NextResponse.redirect(
       new URL(

@@ -1,6 +1,7 @@
 import { FactoringTransactionStatus } from "@prisma/client";
 import Link from "next/link";
 
+import { QueryPagination } from "@/components/query-pagination";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,27 +14,49 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { requireUser } from "@/lib/auth/require-user";
-import { listFactoringTransactionsForUser } from "@/lib/db/factoring";
+import {
+  countFactoringTransactionsForUser,
+  listFactoringTransactionsForUser,
+  sumFactoringNetProceedsForUser,
+} from "@/lib/db/factoring";
 import { formatAdvanceRate } from "@/lib/factoring/offers";
+import { transactionListSearchParamsSchema } from "@/lib/factoring/schemas";
+import { parseSearchParams } from "@/lib/server/http";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/utils";
+
+type Props = {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+};
 
 function formatSettlementMethod(value: string) {
   return value.replace(/_/g, " ");
 }
 
-export default async function TransactionsPage() {
+export default async function TransactionsPage({ searchParams }: Props) {
   const user = await requireUser();
-  const transactions = await listFactoringTransactionsForUser({
-    userId: user.id,
-  });
+  const query = parseSearchParams(
+    (await searchParams) ?? {},
+    transactionListSearchParamsSchema,
+  );
   const activeStatuses = [
     FactoringTransactionStatus.PENDING,
     FactoringTransactionStatus.FUNDED,
-  ] as const;
-
-  const activeCount = transactions.filter((transaction) =>
-    activeStatuses.includes(transaction.status as (typeof activeStatuses)[number]),
-  ).length;
+  ];
+  const [transactions, totalTransactions, activeCount, totalCapitalReceived] =
+    await Promise.all([
+      listFactoringTransactionsForUser({
+        userId: user.id,
+        page: query.page,
+      }),
+      countFactoringTransactionsForUser({
+        userId: user.id,
+      }),
+      countFactoringTransactionsForUser({
+        userId: user.id,
+        statuses: activeStatuses,
+      }),
+      sumFactoringNetProceedsForUser(user.id),
+    ]);
 
   return (
     <div className="space-y-6">
@@ -42,12 +65,12 @@ export default async function TransactionsPage() {
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
             Seller view
           </p>
-          <h1 className="font-[var(--font-heading)] text-4xl font-semibold tracking-tight">
+          <h1 className="text-4xl font-[var(--font-heading)] font-semibold tracking-tight">
             Transaction history
           </h1>
           <p className="max-w-3xl text-sm text-muted-foreground">
-            Monitor every capital advance from withdrawal through repayment, with
-            the exact terms, timing, and settlement details preserved.
+            Monitor every capital advance from withdrawal through repayment,
+            with the exact terms, timing, and settlement details preserved.
           </p>
         </div>
         <Button asChild variant="outline">
@@ -62,7 +85,7 @@ export default async function TransactionsPage() {
           </CardHeader>
           <CardContent>
             <div className="text-4xl font-semibold text-foreground">
-              {transactions.length}
+              {totalTransactions}
             </div>
           </CardContent>
         </Card>
@@ -71,7 +94,9 @@ export default async function TransactionsPage() {
             <CardTitle>Active advances</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-4xl font-semibold text-foreground">{activeCount}</div>
+            <div className="text-4xl font-semibold text-foreground">
+              {activeCount}
+            </div>
           </CardContent>
         </Card>
         <Card className="border-border/70 shadow-panel">
@@ -80,12 +105,7 @@ export default async function TransactionsPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-semibold text-foreground">
-              {formatCurrency(
-                transactions
-                  .reduce((sum, transaction) => sum + Number(transaction.netProceeds), 0)
-                  .toFixed(2),
-                "USDC",
-              )}
+              {formatCurrency(totalCapitalReceived.toString(), "USDC")}
             </div>
           </CardContent>
         </Card>
@@ -126,7 +146,9 @@ export default async function TransactionsPage() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        <div>{transaction.importedInvoice.providerInvoiceId}</div>
+                        <div>
+                          {transaction.importedInvoice.providerInvoiceId}
+                        </div>
                         <div className="text-xs text-muted-foreground">
                           {transaction.importedInvoice.counterpartyName}
                         </div>
@@ -135,7 +157,9 @@ export default async function TransactionsPage() {
                         <StatusBadge status={transaction.status} />
                       </TableCell>
                       <TableCell>
-                        <div>{formatAdvanceRate(transaction.advanceRateBps)}</div>
+                        <div>
+                          {formatAdvanceRate(transaction.advanceRateBps)}
+                        </div>
                         <div className="text-xs text-muted-foreground">
                           {transaction.riskTier}
                         </div>
@@ -152,16 +176,22 @@ export default async function TransactionsPage() {
                           transaction.settlementCurrency,
                         )}
                       </TableCell>
-                      <TableCell>{formatDate(transaction.maturityDate)}</TableCell>
                       <TableCell>
-                        <div>{formatSettlementMethod(transaction.settlementMethod)}</div>
+                        {formatDate(transaction.maturityDate)}
+                      </TableCell>
+                      <TableCell>
+                        <div>
+                          {formatSettlementMethod(transaction.settlementMethod)}
+                        </div>
                         <div className="text-xs text-muted-foreground">
                           {transaction.settlementDestinationMasked}
                         </div>
                       </TableCell>
                       <TableCell className="text-right">
                         <Button asChild size="sm" variant="outline">
-                          <Link href={`/factoring-dashboard/transactions/${transaction.id}`}>
+                          <Link
+                            href={`/factoring-dashboard/transactions/${transaction.id}`}
+                          >
                             View
                           </Link>
                         </Button>
@@ -174,6 +204,15 @@ export default async function TransactionsPage() {
           )}
         </CardContent>
       </Card>
+
+      <QueryPagination
+        pathname="/transactions"
+        page={query.page}
+        pageSize={20}
+        totalItems={totalTransactions}
+        searchParams={{}}
+        label="transactions"
+      />
     </div>
   );
 }

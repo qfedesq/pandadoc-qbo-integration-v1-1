@@ -11,6 +11,8 @@ import {
   validatePandaDocWebhookSignature,
 } from "@/lib/webhooks/pandadoc";
 
+const MAX_WEBHOOK_BODY_BYTES = 256_000;
+
 export async function POST(request: Request) {
   const rateLimit = await enforceRateLimit({
     key: `webhook:pandadoc:${getRequestIp(request)}`,
@@ -19,13 +21,17 @@ export async function POST(request: Request) {
   });
 
   if (!rateLimit.allowed) {
-    return NextResponse.json(
-      { error: "Rate limit reached." },
-      { status: 429 },
-    );
+    return NextResponse.json({ error: "Rate limit reached." }, { status: 429 });
   }
 
   const rawBody = await request.text();
+  if (Buffer.byteLength(rawBody, "utf8") > MAX_WEBHOOK_BODY_BYTES) {
+    return NextResponse.json(
+      { error: "Webhook payload too large." },
+      { status: 413 },
+    );
+  }
+
   const signatureValidated = validatePandaDocWebhookSignature({
     rawBody,
     request,

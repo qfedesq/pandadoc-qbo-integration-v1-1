@@ -8,11 +8,16 @@ import { Chrome } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { buildCsrfHeaders } from "@/lib/security/csrf-client";
 
 export function LoginForm({
   googleEnabled = false,
+  redirectTo = "/factoring-dashboard",
+  csrfToken = "",
 }: {
   googleEnabled?: boolean;
+  redirectTo?: string;
+  csrfToken?: string;
 }) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
@@ -26,19 +31,20 @@ export function LoginForm({
     startTransition(async () => {
       const response = await fetch("/api/auth/login", {
         method: "POST",
-        headers: {
+        headers: buildCsrfHeaders({
           "Content-Type": "application/json",
-        },
+        }),
         body: JSON.stringify({
           email: formData.get("email"),
           password: formData.get("password"),
+          redirectTo,
         }),
       });
 
       if (!response.ok) {
-        const payload = (await response.json().catch(() => null)) as
-          | { error?: string }
-          | null;
+        const payload = (await response.json().catch(() => null)) as {
+          error?: string;
+        } | null;
         setError(payload?.error ?? "Unable to sign in.");
         return;
       }
@@ -54,6 +60,8 @@ export function LoginForm({
       <>
         {googleEnabled ? (
           <form action="/api/auth/google/connect" method="post">
+            <input type="hidden" name="redirectTo" value={redirectTo} />
+            <input type="hidden" name="csrfToken" value={csrfToken} />
             <Button className="w-full" type="submit" variant="outline">
               <Chrome className="h-4 w-4" />
               Continue with Google
@@ -79,6 +87,7 @@ export function LoginForm({
       </>
 
       <form onSubmit={handleSubmit} className="space-y-4">
+        <input type="hidden" name="redirectTo" value={redirectTo} />
         <div className="space-y-2">
           <Label htmlFor="email">Email</Label>
           <Input
@@ -102,7 +111,10 @@ export function LoginForm({
           />
         </div>
         {error ? (
-          <p className="rounded-2xl border border-rose-400/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
+          <p
+            aria-live="polite"
+            className="rounded-2xl border border-rose-400/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-100"
+          >
             {error}
           </p>
         ) : null}

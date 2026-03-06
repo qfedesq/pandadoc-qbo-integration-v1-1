@@ -1,4 +1,8 @@
-import { FactoringTransactionStatus, LedgerOwnerType } from "@prisma/client";
+import {
+  FactoringTransactionStatus,
+  LedgerOwnerType,
+  UserRole,
+} from "@prisma/client";
 import Link from "next/link";
 
 import { StatusBadge } from "@/components/status-badge";
@@ -12,39 +16,44 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { requireUser } from "@/lib/auth/require-user";
+import { requireUserRole } from "@/lib/auth/require-user";
 import {
   getOrCreateManagedCapitalSource,
   getWalletBalance,
-  listFactoringTransactionsForUser,
+  listFactoringTransactionsForCapitalSource,
   listPoolTransactions,
 } from "@/lib/db/factoring";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/utils";
 
 export default async function CapitalPoolPage() {
-  const user = await requireUser();
+  await requireUserRole([UserRole.OPERATOR, UserRole.ADMIN]);
   const capitalSource = await getOrCreateManagedCapitalSource();
-  const [activePositions, poolTransactions, poolWalletBalance, operatorBalance] =
-    await Promise.all([
-      listFactoringTransactionsForUser({
-        userId: user.id,
-        statuses: [FactoringTransactionStatus.FUNDED],
-      }),
-      listPoolTransactions({
-        capitalSourceId: capitalSource.id,
-        take: 12,
-      }),
-      getWalletBalance({
-        ownerType: LedgerOwnerType.POOL,
-        ownerId: capitalSource.id,
-        currency: "USDC",
-      }),
-      getWalletBalance({
-        ownerType: LedgerOwnerType.OPERATOR,
-        ownerId: capitalSource.operatorWallet ?? "protofire-operator",
-        currency: "USDC",
-      }),
-    ]);
+  const [
+    activePositions,
+    poolTransactions,
+    poolWalletBalance,
+    operatorBalance,
+  ] = await Promise.all([
+    listFactoringTransactionsForCapitalSource({
+      capitalSourceId: capitalSource.id,
+      statuses: [FactoringTransactionStatus.FUNDED],
+      take: 20,
+    }),
+    listPoolTransactions({
+      capitalSourceId: capitalSource.id,
+      take: 12,
+    }),
+    getWalletBalance({
+      ownerType: LedgerOwnerType.POOL,
+      ownerId: capitalSource.id,
+      currency: "USDC",
+    }),
+    getWalletBalance({
+      ownerType: LedgerOwnerType.OPERATOR,
+      ownerId: capitalSource.operatorWallet ?? "protofire-operator",
+      currency: "USDC",
+    }),
+  ]);
 
   return (
     <div className="space-y-6">
@@ -53,7 +62,7 @@ export default async function CapitalPoolPage() {
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
             Capital provider view
           </p>
-          <h1 className="font-[var(--font-heading)] text-4xl font-semibold tracking-tight">
+          <h1 className="text-4xl font-[var(--font-heading)] font-semibold tracking-tight">
             Capital pool dashboard
           </h1>
           <p className="max-w-3xl text-sm text-muted-foreground">
@@ -83,7 +92,10 @@ export default async function CapitalPoolPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-semibold text-foreground">
-              {formatCurrency(capitalSource.availableLiquidity.toString(), "USDC")}
+              {formatCurrency(
+                capitalSource.availableLiquidity.toString(),
+                "USDC",
+              )}
             </div>
           </CardContent>
         </Card>
@@ -93,7 +105,10 @@ export default async function CapitalPoolPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-semibold text-foreground">
-              {formatCurrency(capitalSource.deployedLiquidity.toString(), "USDC")}
+              {formatCurrency(
+                capitalSource.deployedLiquidity.toString(),
+                "USDC",
+              )}
             </div>
           </CardContent>
         </Card>
@@ -169,12 +184,17 @@ export default async function CapitalPoolPage() {
                       <TableCell className="font-medium text-foreground">
                         {position.importedInvoice.providerInvoiceId}
                       </TableCell>
-                      <TableCell>{position.importedInvoice.counterpartyName}</TableCell>
+                      <TableCell>
+                        {position.importedInvoice.counterpartyName}
+                      </TableCell>
                       <TableCell>
                         <StatusBadge status={position.status} />
                       </TableCell>
                       <TableCell>
-                        {formatCurrency(position.netProceeds.toString(), "USDC")}
+                        {formatCurrency(
+                          position.netProceeds.toString(),
+                          "USDC",
+                        )}
                       </TableCell>
                       <TableCell>
                         {formatCurrency(
@@ -213,15 +233,21 @@ export default async function CapitalPoolPage() {
               <TableBody>
                 {poolTransactions.map((entry) => (
                   <TableRow key={entry.id}>
-                    <TableCell>{entry.transactionType.replace(/_/g, " ")}</TableCell>
-                    <TableCell>{formatCurrency(entry.amount.toString(), "USDC")}</TableCell>
+                    <TableCell>
+                      {entry.transactionType.replace(/_/g, " ")}
+                    </TableCell>
+                    <TableCell>
+                      {formatCurrency(entry.amount.toString(), "USDC")}
+                    </TableCell>
                     <TableCell>
                       {formatCurrency(entry.principalAmount.toString(), "USDC")}
                     </TableCell>
                     <TableCell>
                       {formatCurrency(entry.yieldAmount.toString(), "USDC")}
                     </TableCell>
-                    <TableCell>{formatCurrency(entry.feeAmount.toString(), "USDC")}</TableCell>
+                    <TableCell>
+                      {formatCurrency(entry.feeAmount.toString(), "USDC")}
+                    </TableCell>
                     <TableCell>
                       {entry.factoringTransaction?.transactionReference ?? "—"}
                     </TableCell>

@@ -1,3 +1,5 @@
+import "server-only";
+
 import { addMinutes, addSeconds } from "date-fns";
 import { Prisma, Provider } from "@prisma/client";
 
@@ -526,7 +528,10 @@ export async function updateConnectionToken(
   });
 }
 
-export async function markConnectionError(connectionId: string, message: string) {
+export async function markConnectionError(
+  connectionId: string,
+  message: string,
+) {
   return prisma.integrationConnection.update({
     where: {
       id: connectionId,
@@ -538,7 +543,10 @@ export async function markConnectionError(connectionId: string, message: string)
   });
 }
 
-export async function markConnectionSynced(connectionId: string, syncedAt: Date) {
+export async function markConnectionSynced(
+  connectionId: string,
+  syncedAt: Date,
+) {
   return prisma.integrationConnection.update({
     where: {
       id: connectionId,

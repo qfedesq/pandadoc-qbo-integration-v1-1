@@ -15,6 +15,7 @@ import {
   RiskTier,
   SettlementMethod,
   PrismaClient,
+  UserRole,
 } from "@prisma/client";
 
 import { hashPassword } from "../lib/auth/passwords";
@@ -48,12 +49,14 @@ async function seedAdminUser(organizationId: string) {
     update: {
       passwordHash,
       name: "Admin User",
+      role: UserRole.ADMIN,
       organizationId,
     },
     create: {
       email: env.DEFAULT_ADMIN_EMAIL.toLowerCase(),
       name: "Admin User",
       passwordHash,
+      role: UserRole.ADMIN,
       organizationId,
     },
   });
@@ -315,40 +318,41 @@ async function seedDemoData(userId: string, organizationId: string) {
     });
   }
 
-  const [invoice9001, invoice9002, invoice9003, invoice9004] = await Promise.all([
-    prisma.importedInvoice.findUniqueOrThrow({
-      where: {
-        connectionId_providerInvoiceId: {
-          connectionId: quickBooksConnection.id,
-          providerInvoiceId: "9001",
+  const [invoice9001, invoice9002, invoice9003, invoice9004] =
+    await Promise.all([
+      prisma.importedInvoice.findUniqueOrThrow({
+        where: {
+          connectionId_providerInvoiceId: {
+            connectionId: quickBooksConnection.id,
+            providerInvoiceId: "9001",
+          },
         },
-      },
-    }),
-    prisma.importedInvoice.findUniqueOrThrow({
-      where: {
-        connectionId_providerInvoiceId: {
-          connectionId: quickBooksConnection.id,
-          providerInvoiceId: "9002",
+      }),
+      prisma.importedInvoice.findUniqueOrThrow({
+        where: {
+          connectionId_providerInvoiceId: {
+            connectionId: quickBooksConnection.id,
+            providerInvoiceId: "9002",
+          },
         },
-      },
-    }),
-    prisma.importedInvoice.findUniqueOrThrow({
-      where: {
-        connectionId_providerInvoiceId: {
-          connectionId: quickBooksConnection.id,
-          providerInvoiceId: "9003",
+      }),
+      prisma.importedInvoice.findUniqueOrThrow({
+        where: {
+          connectionId_providerInvoiceId: {
+            connectionId: quickBooksConnection.id,
+            providerInvoiceId: "9003",
+          },
         },
-      },
-    }),
-    prisma.importedInvoice.findUniqueOrThrow({
-      where: {
-        connectionId_providerInvoiceId: {
-          connectionId: quickBooksConnection.id,
-          providerInvoiceId: "9004",
+      }),
+      prisma.importedInvoice.findUniqueOrThrow({
+        where: {
+          connectionId_providerInvoiceId: {
+            connectionId: quickBooksConnection.id,
+            providerInvoiceId: "9004",
+          },
         },
-      },
-    }),
-  ]);
+      }),
+    ]);
 
   const capitalSource = await prisma.capitalSource.upsert({
     where: {
@@ -415,7 +419,8 @@ async function seedDemoData(userId: string, organizationId: string) {
     {
       invoice: invoice9002,
       eligibilityStatus: FactoringEligibilityStatus.INELIGIBLE,
-      ineligibilityReason: "Overdue invoices are not eligible for the Tier 1 managed pool.",
+      ineligibilityReason:
+        "Overdue invoices are not eligible for the Tier 1 managed pool.",
       grossAmount: "980.00",
       advanceRateBps: 8500,
       advanceAmount: "833.00",
@@ -431,7 +436,8 @@ async function seedDemoData(userId: string, organizationId: string) {
     {
       invoice: invoice9003,
       eligibilityStatus: FactoringEligibilityStatus.INELIGIBLE,
-      ineligibilityReason: "An active factoring transaction already exists for this invoice.",
+      ineligibilityReason:
+        "An active factoring transaction already exists for this invoice.",
       grossAmount: "600.00",
       advanceRateBps: 8500,
       advanceAmount: "510.00",

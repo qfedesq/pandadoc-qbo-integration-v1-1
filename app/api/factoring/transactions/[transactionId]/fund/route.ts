@@ -1,51 +1,48 @@
-import { NextResponse } from "next/server";
-import { z } from "zod";
+import { UserRole } from "@prisma/client";
 
-import { getCurrentSessionUser } from "@/lib/auth/session";
-import { transitionFactoringTransactionForUser } from "@/lib/factoring/transactions";
-import { logger } from "@/lib/logging/logger";
-import { assertValidAppRequestOrigin } from "@/lib/security/origin";
-import { enforceRateLimit, getRequestIp } from "@/lib/security/rate-limit";
-import { getPublicError } from "@/lib/utils/errors";
-
-const transactionParamsSchema = z.object({
-  transactionId: z.string().min(1),
-});
+import { transactionRouteParamsSchema } from "@/lib/factoring/schemas";
+import { getOrCreateManagedCapitalSource } from "@/lib/db/factoring";
+import { transitionFactoringTransactionForCapitalSource } from "@/lib/factoring/transactions";
+import {
+  getRequestContext,
+  guardApiMutation,
+  handleApiError,
+  jsonNoStore,
+  parseRouteParams,
+  requireApiUser,
+} from "@/lib/server/http";
 
 export async function POST(
   request: Request,
   context: { params: Promise<{ transactionId: string }> },
 ) {
-  const user = await getCurrentSessionUser();
-
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-  }
+  const requestContext = getRequestContext(request);
 
   try {
-    assertValidAppRequestOrigin(request);
-
-    const rateLimit = await enforceRateLimit({
-      key: `factoring:fund:${user.id}:${getRequestIp(request)}`,
-      limit: 20,
-      windowMs: 60_000,
+    const user = await requireApiUser({
+      roles: [UserRole.OPERATOR, UserRole.ADMIN],
+    });
+    await guardApiMutation(request, {
+      rateLimit: {
+        key: `factoring:fund:${user.id}:${requestContext.ip}`,
+        limit: 20,
+        windowMs: 60_000,
+      },
     });
 
-    if (!rateLimit.allowed) {
-      return NextResponse.json(
-        { error: "Rate limit reached." },
-        { status: 429 },
-      );
-    }
-
-    const params = transactionParamsSchema.parse(await context.params);
-    const transaction = await transitionFactoringTransactionForUser({
+    const params = await parseRouteParams(
+      context.params,
+      transactionRouteParamsSchema,
+    );
+    const capitalSource = await getOrCreateManagedCapitalSource();
+    const transaction = await transitionFactoringTransactionForCapitalSource({
       userId: user.id,
+      capitalSourceId: capitalSource.id,
       transactionId: params.transactionId,
       targetStatus: "FUNDED",
     });
 
-    return NextResponse.json({
+    return jsonNoStore({
       ok: true,
       transaction: {
         id: transaction.id,
@@ -53,11 +50,10 @@ export async function POST(
       },
     });
   } catch (error) {
-    logger.error("factoring.mark_funded_failed", { error });
-    const publicError = getPublicError(error);
-    return NextResponse.json(
-      { error: publicError.message, code: publicError.code },
-      { status: publicError.statusCode },
+    return handleApiError(
+      "factoring.mark_funded_failed",
+      error,
+      requestContext,
     );
   }
 }

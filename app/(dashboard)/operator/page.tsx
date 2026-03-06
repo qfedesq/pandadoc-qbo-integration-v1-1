@@ -1,6 +1,7 @@
 import {
   FactoringTransactionStatus,
   LedgerOwnerType,
+  UserRole,
 } from "@prisma/client";
 import Link from "next/link";
 
@@ -16,33 +17,46 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { requireUser } from "@/lib/auth/require-user";
+import { requireUserRole } from "@/lib/auth/require-user";
 import {
+  countFactoringTransactionsForCapitalSource,
   getOrCreateManagedCapitalSource,
   getWalletBalance,
-  listFactoringEventsForUser,
-  listFactoringTransactionsForUser,
+  listFactoringEventsForCapitalSource,
+  listFactoringTransactionsForCapitalSource,
 } from "@/lib/db/factoring";
 import { formatCurrency, formatDateTime } from "@/lib/utils";
 
 export default async function OperatorPage() {
-  const user = await requireUser();
+  await requireUserRole([UserRole.OPERATOR, UserRole.ADMIN]);
   const capitalSource = await getOrCreateManagedCapitalSource();
-  const [positions, auditEvents, operatorBalance] = await Promise.all([
-    listFactoringTransactionsForUser({
-      userId: user.id,
-      statuses: [FactoringTransactionStatus.PENDING, FactoringTransactionStatus.FUNDED],
-    }),
-    listFactoringEventsForUser({
-      userId: user.id,
-      take: 12,
-    }),
-    getWalletBalance({
-      ownerType: LedgerOwnerType.OPERATOR,
-      ownerId: capitalSource.operatorWallet ?? "protofire-operator",
-      currency: "USDC",
-    }),
-  ]);
+  const [positions, openPositionsCount, auditEvents, operatorBalance] =
+    await Promise.all([
+      listFactoringTransactionsForCapitalSource({
+        capitalSourceId: capitalSource.id,
+        statuses: [
+          FactoringTransactionStatus.PENDING,
+          FactoringTransactionStatus.FUNDED,
+        ],
+        take: 20,
+      }),
+      countFactoringTransactionsForCapitalSource({
+        capitalSourceId: capitalSource.id,
+        statuses: [
+          FactoringTransactionStatus.PENDING,
+          FactoringTransactionStatus.FUNDED,
+        ],
+      }),
+      listFactoringEventsForCapitalSource({
+        capitalSourceId: capitalSource.id,
+        take: 12,
+      }),
+      getWalletBalance({
+        ownerType: LedgerOwnerType.OPERATOR,
+        ownerId: capitalSource.operatorWallet ?? "protofire-operator",
+        currency: "USDC",
+      }),
+    ]);
 
   return (
     <div className="space-y-6">
@@ -51,7 +65,7 @@ export default async function OperatorPage() {
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
             Operator console
           </p>
-          <h1 className="font-[var(--font-heading)] text-4xl font-semibold tracking-tight">
+          <h1 className="text-4xl font-[var(--font-heading)] font-semibold tracking-tight">
             Admin and repayment controls
           </h1>
           <p className="max-w-3xl text-sm text-muted-foreground">
@@ -75,7 +89,9 @@ export default async function OperatorPage() {
             <CardTitle>Pending operator actions</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-4xl font-semibold text-foreground">{positions.length}</div>
+            <div className="text-4xl font-semibold text-foreground">
+              {openPositionsCount}
+            </div>
           </CardContent>
         </Card>
         <Card className="border-border/70 shadow-panel">
@@ -129,13 +145,19 @@ export default async function OperatorPage() {
                       </div>
                       <p className="text-sm text-muted-foreground">
                         Invoice {position.importedInvoice.providerInvoiceId} ·{" "}
-                        {position.importedInvoice.counterpartyName} · net proceeds{" "}
-                        {formatCurrency(position.netProceeds.toString(), "USDC")}
+                        {position.importedInvoice.counterpartyName} · net
+                        proceeds{" "}
+                        {formatCurrency(
+                          position.netProceeds.toString(),
+                          "USDC",
+                        )}
                       </p>
                     </div>
                     <div className="flex flex-wrap items-center gap-3">
                       <Button asChild variant="outline" size="sm">
-                        <Link href={`/factoring-dashboard/transactions/${position.id}`}>
+                        <Link
+                          href={`/factoring-dashboard/transactions/${position.id}`}
+                        >
                           Open detail
                         </Link>
                       </Button>
@@ -171,12 +193,16 @@ export default async function OperatorPage() {
                 {auditEvents.map((event) => (
                   <TableRow key={event.id}>
                     <TableCell>
-                      <div className="font-medium text-foreground">{event.message}</div>
+                      <div className="font-medium text-foreground">
+                        {event.message}
+                      </div>
                       <div className="text-xs text-muted-foreground">
                         {event.eventType.replace(/_/g, " ")}
                       </div>
                     </TableCell>
-                    <TableCell>{event.importedInvoice.providerInvoiceId}</TableCell>
+                    <TableCell>
+                      {event.importedInvoice.providerInvoiceId}
+                    </TableCell>
                     <TableCell>
                       {event.factoringTransaction?.transactionReference ?? "—"}
                     </TableCell>

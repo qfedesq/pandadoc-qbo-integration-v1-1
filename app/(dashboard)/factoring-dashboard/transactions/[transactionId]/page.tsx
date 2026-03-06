@@ -1,3 +1,4 @@
+import { UserRole } from "@prisma/client";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 
@@ -6,7 +7,12 @@ import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { requireUser } from "@/lib/auth/require-user";
-import { getFactoringTransactionForUser } from "@/lib/db/factoring";
+import { getEffectiveUserRole } from "@/lib/auth/authorization";
+import {
+  getFactoringTransactionForCapitalSource,
+  getFactoringTransactionForUser,
+  getOrCreateManagedCapitalSource,
+} from "@/lib/db/factoring";
 import { formatAdvanceRate, formatDiscountRate } from "@/lib/factoring/offers";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/utils";
 
@@ -22,16 +28,32 @@ function formatSettlementMethod(value: string) {
 
 export default async function FactoringTransactionPage({ params }: Props) {
   const user = await requireUser();
+  const role = getEffectiveUserRole(user);
+  const canManageTransaction =
+    role === UserRole.OPERATOR || role === UserRole.ADMIN;
   const { transactionId } = await params;
 
-  const transaction = await getFactoringTransactionForUser({
-    userId: user.id,
-    transactionId,
-  });
+  const transaction = canManageTransaction
+    ? await (async () => {
+        const capitalSource = await getOrCreateManagedCapitalSource();
+        return getFactoringTransactionForCapitalSource({
+          capitalSourceId: capitalSource.id,
+          transactionId,
+        });
+      })()
+    : await getFactoringTransactionForUser({
+        userId: user.id,
+        transactionId,
+      });
 
   if (!transaction) {
     notFound();
   }
+
+  const backHref = canManageTransaction ? "/operator" : "/factoring-dashboard";
+  const backLabel = canManageTransaction
+    ? "Back to operator console"
+    : "Back to seller dashboard";
 
   return (
     <div className="space-y-6">
@@ -40,7 +62,7 @@ export default async function FactoringTransactionPage({ params }: Props) {
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
             Capital advance
           </p>
-          <h1 className="font-[var(--font-heading)] text-4xl font-semibold tracking-tight">
+          <h1 className="text-4xl font-[var(--font-heading)] font-semibold tracking-tight">
             {transaction.transactionReference}
           </h1>
           <p className="max-w-3xl text-sm text-muted-foreground">
@@ -50,7 +72,7 @@ export default async function FactoringTransactionPage({ params }: Props) {
         </div>
         <div className="flex flex-wrap gap-3">
           <Button asChild variant="outline">
-            <Link href="/factoring-dashboard">Back to seller dashboard</Link>
+            <Link href={backHref}>{backLabel}</Link>
           </Button>
         </div>
       </div>
@@ -160,7 +182,9 @@ export default async function FactoringTransactionPage({ params }: Props) {
             <CardTitle>Funding summary</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3 text-sm text-muted-foreground">
-            <p className="font-medium text-foreground">Managed capital provider pool</p>
+            <p className="font-medium text-foreground">
+              Managed capital provider pool
+            </p>
             <p>Risk tier: {transaction.riskTier}</p>
             <p>
               Funding capacity snapshot:{" "}
@@ -170,7 +194,8 @@ export default async function FactoringTransactionPage({ params }: Props) {
               )}
             </p>
             <p>
-              Settlement ref: {transaction.arenaSettlementReference ?? "Not issued"}
+              Settlement ref:{" "}
+              {transaction.arenaSettlementReference ?? "Not issued"}
             </p>
             <p>Platform fee booked on repayment and tracked in the ledger.</p>
           </CardContent>
@@ -204,7 +229,10 @@ export default async function FactoringTransactionPage({ params }: Props) {
                 Maturity
               </span>
               <span className="mt-1 block font-medium text-foreground">
-                {formatDate(transaction.maturityDate ?? transaction.importedInvoice.dueDate)}
+                {formatDate(
+                  transaction.maturityDate ??
+                    transaction.importedInvoice.dueDate,
+                )}
               </span>
             </div>
             <div>
@@ -236,17 +264,30 @@ export default async function FactoringTransactionPage({ params }: Props) {
 
         <Card className="border-border/70 shadow-panel">
           <CardHeader>
-            <CardTitle>Demo controls</CardTitle>
+            <CardTitle>
+              {canManageTransaction
+                ? "Operator controls"
+                : "Transaction controls"}
+            </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4 text-sm text-muted-foreground">
-            <p>
-              Use the demo controls below to simulate funding and repayment during
-              the presentation.
-            </p>
-            <FactoringTransactionActions
-              transactionId={transaction.id}
-              status={transaction.status}
-            />
+            {canManageTransaction ? (
+              <>
+                <p>
+                  Use the controls below to simulate funding and repayment
+                  during the presentation.
+                </p>
+                <FactoringTransactionActions
+                  transactionId={transaction.id}
+                  status={transaction.status}
+                />
+              </>
+            ) : (
+              <p>
+                Funding and repayment are controlled from the operator console.
+                This page remains read-only for seller users.
+              </p>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -273,16 +314,24 @@ export default async function FactoringTransactionPage({ params }: Props) {
                         {entry.description}
                       </p>
                       <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
-                        {entry.ownerType.replace(/_/g, " ")} · {entry.entryType.replace(/_/g, " ")}
+                        {entry.ownerType.replace(/_/g, " ")} ·{" "}
+                        {entry.entryType.replace(/_/g, " ")}
                       </p>
                     </div>
                     <div className="text-right">
                       <p className="text-sm font-medium text-foreground">
                         {entry.direction === "CREDIT" ? "+" : "-"}
-                        {formatCurrency(entry.amount.toString(), entry.currency)}
+                        {formatCurrency(
+                          entry.amount.toString(),
+                          entry.currency,
+                        )}
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        Balance after {formatCurrency(entry.balanceAfter.toString(), entry.currency)}
+                        Balance after{" "}
+                        {formatCurrency(
+                          entry.balanceAfter.toString(),
+                          entry.currency,
+                        )}
                       </p>
                     </div>
                   </div>
@@ -306,7 +355,9 @@ export default async function FactoringTransactionPage({ params }: Props) {
               >
                 <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                   <div className="space-y-1">
-                    <p className="text-sm font-medium text-foreground">{event.message}</p>
+                    <p className="text-sm font-medium text-foreground">
+                      {event.message}
+                    </p>
                     <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
                       {event.eventType.replace(/_/g, " ")}
                     </p>
@@ -315,10 +366,14 @@ export default async function FactoringTransactionPage({ params }: Props) {
                     {formatDateTime(event.createdAt)}
                   </div>
                 </div>
-                {(event.statusFrom || event.statusTo) ? (
+                {event.statusFrom || event.statusTo ? (
                   <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                    {event.statusFrom ? <StatusBadge status={event.statusFrom} /> : null}
-                    {event.statusTo ? <StatusBadge status={event.statusTo} /> : null}
+                    {event.statusFrom ? (
+                      <StatusBadge status={event.statusFrom} />
+                    ) : null}
+                    {event.statusTo ? (
+                      <StatusBadge status={event.statusTo} />
+                    ) : null}
                   </div>
                 ) : null}
               </div>

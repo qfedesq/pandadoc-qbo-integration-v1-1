@@ -1,3 +1,5 @@
+import "server-only";
+
 import {
   InvoiceStatus,
   Prisma,
@@ -7,6 +9,7 @@ import {
 } from "@prisma/client";
 
 import { prisma } from "@/lib/db/prisma";
+import { getPagination } from "@/lib/pagination";
 import { AppError } from "@/lib/utils/errors";
 
 export type ImportedInvoiceUpsertInput = {
@@ -238,10 +241,30 @@ export async function listImportedInvoicesForUser(input: {
   search?: string;
   status?: InvoiceStatus | "ALL";
   overdueOnly?: boolean;
+  page?: number;
+  pageSize?: number;
 }) {
+  const pagination = getPagination({
+    page: input.page,
+    pageSize: input.pageSize,
+  });
+
   return prisma.importedInvoice.findMany({
     where: buildImportedInvoiceWhereInput(input),
     orderBy: [{ dueDate: "asc" }, { lastSyncedAt: "desc" }],
+    skip: pagination.skip,
+    take: pagination.take,
+  });
+}
+
+export async function countImportedInvoicesForUser(input: {
+  userId: string;
+  search?: string;
+  status?: InvoiceStatus | "ALL";
+  overdueOnly?: boolean;
+}) {
+  return prisma.importedInvoice.count({
+    where: buildImportedInvoiceWhereInput(input),
   });
 }
 

@@ -1,13 +1,20 @@
-import { NextResponse } from "next/server";
 import { Provider } from "@prisma/client";
 import { z } from "zod";
 
-import { getCurrentSessionUser } from "@/lib/auth/session";
-import { disconnectConnection, findUserConnection } from "@/lib/db/integrations";
+import {
+  disconnectConnection,
+  findUserConnection,
+} from "@/lib/db/integrations";
 import { logger } from "@/lib/logging/logger";
 import { revokeQuickBooksToken } from "@/lib/providers/quickbooks/oauth";
 import { decryptSecret } from "@/lib/security/encryption";
-import { assertValidAppRequestOrigin } from "@/lib/security/origin";
+import {
+  getRequestContext,
+  guardApiMutation,
+  parseRouteParams,
+  redirectNoStore,
+  requireApiUser,
+} from "@/lib/server/http";
 import { getPublicError } from "@/lib/utils/errors";
 
 const providerSchema = z.enum(["pandadoc", "quickbooks"]);
@@ -16,17 +23,16 @@ export async function POST(
   request: Request,
   context: { params: Promise<{ provider: string }> },
 ) {
-  const user = await getCurrentSessionUser();
-
-  if (!user) {
-    return NextResponse.redirect(new URL("/login", request.url));
-  }
+  const requestContext = getRequestContext(request);
 
   try {
-    assertValidAppRequestOrigin(request);
+    const user = await requireApiUser();
+    await guardApiMutation(request);
 
-    const { provider: rawProvider } = await context.params;
-    const provider = providerSchema.parse(rawProvider);
+    const { provider } = await parseRouteParams(
+      context.params,
+      z.object({ provider: providerSchema }),
+    );
     const normalizedProvider =
       provider === "pandadoc" ? Provider.PANDADOC : Provider.QUICKBOOKS;
 
@@ -47,14 +53,17 @@ export async function POST(
 
     await disconnectConnection(user.id, normalizedProvider);
 
-    return NextResponse.redirect(
+    return redirectNoStore(
       new URL("/integrations?notice=Connection%20removed", request.url),
       303,
     );
   } catch (error) {
-    logger.error("integrations.disconnect_failed", { error });
+    logger.error("integrations.disconnect_failed", {
+      ...requestContext,
+      error,
+    });
     const publicError = getPublicError(error);
-    return NextResponse.redirect(
+    return redirectNoStore(
       new URL(
         `/integrations?error=${encodeURIComponent(publicError.message)}`,
         request.url,

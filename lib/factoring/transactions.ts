@@ -1,3 +1,5 @@
+import "server-only";
+
 import {
   FactoringEventType,
   FactoringLifecycleStatus,
@@ -7,12 +9,14 @@ import {
   OnChainExecutionStatus,
   PoolTransactionType,
   SettlementMethod,
-  type Prisma,
+  Prisma,
 } from "@prisma/client";
 
 import { arenaStafiGateway } from "@/lib/arena-stafi/gateway";
 import {
+  findActiveFactoringTransactionForInvoice,
   getFactoringInvoiceForUser,
+  getFactoringTransactionForCapitalSource,
   getFactoringTransactionForUser,
   getOrCreateManagedCapitalSource,
   upsertFactoringOffer,
@@ -58,6 +62,8 @@ type TransactionDeps = {
 };
 
 type TransactionClient = Prisma.TransactionClient;
+
+const SERIALIZABLE_RETRY_ATTEMPTS = 2;
 
 const createTransactionDeps: TransactionDeps = {
   getInvoice: getFactoringInvoiceForUser,
@@ -125,7 +131,9 @@ function roundCurrency(value: number) {
   return Math.round(value * 100) / 100;
 }
 
-function toNumber(value: number | string | { toString(): string } | null | undefined) {
+function toNumber(
+  value: number | string | { toString(): string } | null | undefined,
+) {
   if (value === null || value === undefined) {
     return 0;
   }
@@ -136,6 +144,53 @@ function toNumber(value: number | string | { toString(): string } | null | undef
 
 function toMoney(value: number) {
   return roundCurrency(value).toFixed(2);
+}
+
+function isSerializableRetryError(error: unknown) {
+  return (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    error.code === "P2034"
+  );
+}
+
+function isActivePositionConflict(error: unknown) {
+  if (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    error.code === "P2002"
+  ) {
+    return true;
+  }
+
+  if (error instanceof Error) {
+    return /factoring_positions_one_active_per_invoice_idx/i.test(
+      error.message,
+    );
+  }
+
+  return false;
+}
+
+async function runSerializableTransaction<T>(
+  operation: (tx: TransactionClient) => Promise<T>,
+) {
+  let attempt = 0;
+
+  while (true) {
+    try {
+      return await prisma.$transaction(operation, {
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+      });
+    } catch (error) {
+      if (
+        attempt >= SERIALIZABLE_RETRY_ATTEMPTS ||
+        !isSerializableRetryError(error)
+      ) {
+        throw error;
+      }
+
+      attempt += 1;
+    }
+  }
 }
 
 function buildSettlementDestination(
@@ -177,7 +232,9 @@ function buildSettlementDestination(
     };
   }
 
-  const lastFour = normalizeLastFour(sanitizeDestinationLabel(input.debitCardLabel));
+  const lastFour = normalizeLastFour(
+    sanitizeDestinationLabel(input.debitCardLabel),
+  );
 
   return {
     settlementDestinationMasked: `Debit card ••${lastFour}`,
@@ -223,7 +280,8 @@ function offerChanged(
     existing.discountRateBps !== calculated.discountRateBps ||
     existing.discountAmount.toString() !== toMoney(calculated.discountAmount) ||
     existing.operatorFeeBps !== calculated.operatorFeeBps ||
-    existing.operatorFeeAmount.toString() !== toMoney(calculated.operatorFeeAmount) ||
+    existing.operatorFeeAmount.toString() !==
+      toMoney(calculated.operatorFeeAmount) ||
     existing.netProceeds.toString() !== toMoney(calculated.netProceeds) ||
     existing.expectedRepaymentAmount.toString() !==
       toMoney(calculated.expectedRepaymentAmount) ||
@@ -231,7 +289,10 @@ function offerChanged(
   );
 }
 
-async function hydrateTransaction(tx: TransactionClient, transactionId: string) {
+async function hydrateTransaction(
+  tx: TransactionClient,
+  transactionId: string,
+) {
   return tx.factoringTransaction.findUniqueOrThrow({
     where: {
       id: transactionId,
@@ -463,7 +524,9 @@ async function bookRepayment(
   const principalAmount = toNumber(input.transaction.principalAmount);
   const poolYieldAmount = toNumber(input.transaction.poolYieldAmount);
   const operatorFeeAmount = toNumber(input.transaction.operatorFeeAmount);
-  const expectedRepaymentAmount = toNumber(input.transaction.expectedRepaymentAmount);
+  const expectedRepaymentAmount = toNumber(
+    input.transaction.expectedRepaymentAmount,
+  );
   const availableLiquidity = toNumber(capitalSource.availableLiquidity);
   const deployedLiquidity = toNumber(capitalSource.deployedLiquidity);
   const accruedYield = toNumber(capitalSource.accruedYield);
@@ -490,9 +553,13 @@ async function bookRepayment(
   const nextAvailable = roundCurrency(
     availableLiquidity + principalAmount + poolYieldAmount,
   );
-  const nextDeployed = roundCurrency(Math.max(deployedLiquidity - principalAmount, 0));
+  const nextDeployed = roundCurrency(
+    Math.max(deployedLiquidity - principalAmount, 0),
+  );
   const nextAccruedYield = roundCurrency(accruedYield + poolYieldAmount);
-  const nextProtocolFees = roundCurrency(protocolFeesCollected + operatorFeeAmount);
+  const nextProtocolFees = roundCurrency(
+    protocolFeesCollected + operatorFeeAmount,
+  );
   const nextTotalLiquidity = roundCurrency(totalLiquidity + poolYieldAmount);
 
   await tx.capitalSource.update({
@@ -620,7 +687,8 @@ async function bookRepayment(
         importedInvoiceId: input.transaction.importedInvoiceId,
         factoringTransactionId: input.transaction.id,
         eventType: FactoringEventType.POOL_DISTRIBUTION_BOOKED,
-        message: "Pool principal, yield, and operator fees booked to the ledger.",
+        message:
+          "Pool principal, yield, and operator fees booked to the ledger.",
         metadata: {
           poolYieldAmount,
           operatorFeeAmount,
@@ -631,7 +699,10 @@ async function bookRepayment(
 }
 
 export async function ensureFactoringOffer(
-  deps: Pick<TransactionDeps, "getInvoice" | "getCapitalSource" | "upsertOffer">,
+  deps: Pick<
+    TransactionDeps,
+    "getInvoice" | "getCapitalSource" | "upsertOffer"
+  >,
   input: {
     userId: string;
     importedInvoiceId: string;
@@ -698,7 +769,9 @@ export async function ensureFactoringOffer(
     FactoringLifecycleStatus.DEFAULTED,
   ]);
 
-  const nextLifecycleStatus = terminalStates.has(invoice.factoringLifecycleStatus)
+  const nextLifecycleStatus = terminalStates.has(
+    invoice.factoringLifecycleStatus,
+  )
     ? invoice.factoringLifecycleStatus
     : calculated.eligibility.eligible
       ? FactoringLifecycleStatus.ELIGIBLE
@@ -801,151 +874,180 @@ export async function createFactoringTransaction(
     destinationMasked: settlement.settlementDestinationMasked,
   });
 
-  const result = await prisma.$transaction(async (tx) => {
-    const existing = await tx.factoringTransaction.findFirst({
-      where: {
+  let result: {
+    created: boolean;
+    transaction: Awaited<ReturnType<typeof hydrateTransaction>>;
+  };
+
+  try {
+    result = await runSerializableTransaction(async (tx) => {
+      const existing = await tx.factoringTransaction.findFirst({
+        where: {
+          userId: input.userId,
+          importedInvoiceId: invoice.id,
+          status: {
+            in: [
+              FactoringTransactionStatus.PENDING,
+              FactoringTransactionStatus.FUNDED,
+            ],
+          },
+        },
+        include: transactionDetailInclude,
+        orderBy: {
+          createdAt: "desc",
+        },
+      });
+
+      if (existing) {
+        return {
+          created: false,
+          transaction: existing,
+        };
+      }
+
+      const reservedAt = new Date();
+      const transaction = await tx.factoringTransaction.create({
+        data: {
+          transactionReference,
+          userId: input.userId,
+          organizationId,
+          importedInvoiceId: invoice.id,
+          factoringOfferId: offer.id,
+          capitalSourceId: capitalSource.id,
+          marketplaceNode: DEFAULT_MARKETPLACE_NODE,
+          accountingSystem: getAccountingSystemForProvider(invoice.provider),
+          status: FactoringTransactionStatus.PENDING,
+          settlementMethod: input.settlementMethod,
+          settlementDestinationMasked: settlement.settlementDestinationMasked,
+          sellerWalletAddress: settlement.sellerWalletAddress,
+          invoiceCurrency: invoice.currency,
+          settlementCurrency: calculated.settlementCurrency,
+          grossAmount: toMoney(calculated.grossAmount),
+          advanceRateBps: calculated.advanceRateBps,
+          advanceAmount: toMoney(calculated.advanceAmount),
+          principalAmount: toMoney(calculated.netProceeds),
+          discountRateBps: calculated.discountRateBps,
+          discountAmount: toMoney(calculated.discountAmount),
+          operatorFeeBps: calculated.operatorFeeBps,
+          operatorFeeAmount: toMoney(calculated.operatorFeeAmount),
+          poolYieldAmount: toMoney(calculated.poolYieldAmount),
+          netProceeds: toMoney(calculated.netProceeds),
+          expectedRepaymentAmount: toMoney(calculated.expectedRepaymentAmount),
+          maturityDate: calculated.expectedMaturityDate,
+          riskTier: calculated.riskTier,
+          settlementTimeLabel: settlementMethod.settlementTimeLabel,
+          termsAcceptedAt: reservedAt,
+          reservedAt,
+          operatorWallet: preparedSettlement.operatorWallet,
+          arenaSettlementReference: preparedSettlement.settlementReference,
+          onChainExecutionStatus: preparedSettlement.onChainExecutionStatus,
+          metadata: {
+            ...settlement.metadata,
+            capitalSourceKey: preparedSettlement.capitalSourceKey,
+            network: preparedSettlement.network,
+            simulation: true,
+          },
+        },
+      });
+
+      await tx.factoringEventLog.createMany({
+        data: [
+          {
+            organizationId,
+            userId: input.userId,
+            importedInvoiceId: invoice.id,
+            factoringTransactionId: transaction.id,
+            eventType: FactoringEventType.TERMS_ACCEPTED,
+            message: `Terms accepted for ${settlementMethod.label.toLowerCase()} settlement.`,
+            metadata: {
+              settlementMethod: input.settlementMethod,
+              settlementDestinationMasked:
+                settlement.settlementDestinationMasked,
+              advanceRateBps: calculated.advanceRateBps,
+              discountRateBps: calculated.discountRateBps,
+            },
+          },
+          {
+            organizationId,
+            userId: input.userId,
+            importedInvoiceId: invoice.id,
+            factoringTransactionId: transaction.id,
+            eventType: FactoringEventType.TRANSACTION_CREATED,
+            statusTo: FactoringTransactionStatus.PENDING,
+            message: "Factoring position created and submitted for funding.",
+            metadata: {
+              transactionReference,
+              netProceeds: calculated.netProceeds,
+              settlementCurrency: calculated.settlementCurrency,
+            },
+          },
+          {
+            organizationId,
+            userId: input.userId,
+            importedInvoiceId: invoice.id,
+            factoringTransactionId: transaction.id,
+            eventType: FactoringEventType.FUNDS_RESERVED,
+            statusTo: FactoringTransactionStatus.PENDING,
+            message: "Pool funds reserved for the seller withdrawal.",
+            metadata: {
+              reservedAt: reservedAt.toISOString(),
+            },
+          },
+          {
+            organizationId,
+            userId: input.userId,
+            importedInvoiceId: invoice.id,
+            factoringTransactionId: transaction.id,
+            eventType: FactoringEventType.ARENA_SETTLEMENT_PREPARED,
+            statusTo: FactoringTransactionStatus.PENDING,
+            message: preparedSettlement.message,
+            metadata: {
+              capitalSourceKey: preparedSettlement.capitalSourceKey,
+              settlementReference: preparedSettlement.settlementReference,
+              network: preparedSettlement.network,
+              onChainExecutionStatus: preparedSettlement.onChainExecutionStatus,
+            },
+          },
+        ],
+      });
+
+      await bookFunding(tx, {
+        organizationId,
         userId: input.userId,
         importedInvoiceId: invoice.id,
-        status: {
-          in: [FactoringTransactionStatus.PENDING, FactoringTransactionStatus.FUNDED],
-        },
-      },
-      include: transactionDetailInclude,
-      orderBy: {
-        createdAt: "desc",
-      },
-    });
+        transactionId: transaction.id,
+        capitalSourceId: capitalSource.id,
+        operatorWallet: preparedSettlement.operatorWallet ?? null,
+        settlementReference: preparedSettlement.settlementReference ?? null,
+        onChainExecutionStatus: preparedSettlement.onChainExecutionStatus,
+        settlementCurrency: calculated.settlementCurrency,
+        netProceeds: calculated.netProceeds,
+      });
 
-    if (existing) {
       return {
-        created: false,
-        transaction: existing,
+        created: true,
+        transaction: await hydrateTransaction(tx, transaction.id),
       };
+    });
+  } catch (error) {
+    if (!isActivePositionConflict(error)) {
+      throw error;
     }
 
-    const reservedAt = new Date();
-    const transaction = await tx.factoringTransaction.create({
-      data: {
-        transactionReference,
-        userId: input.userId,
-        organizationId,
-        importedInvoiceId: invoice.id,
-        factoringOfferId: offer.id,
-        capitalSourceId: capitalSource.id,
-        marketplaceNode: DEFAULT_MARKETPLACE_NODE,
-        accountingSystem: getAccountingSystemForProvider(invoice.provider),
-        status: FactoringTransactionStatus.PENDING,
-        settlementMethod: input.settlementMethod,
-        settlementDestinationMasked: settlement.settlementDestinationMasked,
-        sellerWalletAddress: settlement.sellerWalletAddress,
-        invoiceCurrency: invoice.currency,
-        settlementCurrency: calculated.settlementCurrency,
-        grossAmount: toMoney(calculated.grossAmount),
-        advanceRateBps: calculated.advanceRateBps,
-        advanceAmount: toMoney(calculated.advanceAmount),
-        principalAmount: toMoney(calculated.netProceeds),
-        discountRateBps: calculated.discountRateBps,
-        discountAmount: toMoney(calculated.discountAmount),
-        operatorFeeBps: calculated.operatorFeeBps,
-        operatorFeeAmount: toMoney(calculated.operatorFeeAmount),
-        poolYieldAmount: toMoney(calculated.poolYieldAmount),
-        netProceeds: toMoney(calculated.netProceeds),
-        expectedRepaymentAmount: toMoney(calculated.expectedRepaymentAmount),
-        maturityDate: calculated.expectedMaturityDate,
-        riskTier: calculated.riskTier,
-        settlementTimeLabel: settlementMethod.settlementTimeLabel,
-        termsAcceptedAt: reservedAt,
-        reservedAt,
-        operatorWallet: preparedSettlement.operatorWallet,
-        arenaSettlementReference: preparedSettlement.settlementReference,
-        onChainExecutionStatus: preparedSettlement.onChainExecutionStatus,
-        metadata: {
-          ...settlement.metadata,
-          capitalSourceKey: preparedSettlement.capitalSourceKey,
-          network: preparedSettlement.network,
-          simulation: true,
-        },
-      },
-    });
-
-    await tx.factoringEventLog.createMany({
-      data: [
-        {
-          organizationId,
-          userId: input.userId,
-          importedInvoiceId: invoice.id,
-          factoringTransactionId: transaction.id,
-          eventType: FactoringEventType.TERMS_ACCEPTED,
-          message: `Terms accepted for ${settlementMethod.label.toLowerCase()} settlement.`,
-          metadata: {
-            settlementMethod: input.settlementMethod,
-            settlementDestinationMasked: settlement.settlementDestinationMasked,
-            advanceRateBps: calculated.advanceRateBps,
-            discountRateBps: calculated.discountRateBps,
-          },
-        },
-        {
-          organizationId,
-          userId: input.userId,
-          importedInvoiceId: invoice.id,
-          factoringTransactionId: transaction.id,
-          eventType: FactoringEventType.TRANSACTION_CREATED,
-          statusTo: FactoringTransactionStatus.PENDING,
-          message: "Factoring position created and submitted for funding.",
-          metadata: {
-            transactionReference,
-            netProceeds: calculated.netProceeds,
-            settlementCurrency: calculated.settlementCurrency,
-          },
-        },
-        {
-          organizationId,
-          userId: input.userId,
-          importedInvoiceId: invoice.id,
-          factoringTransactionId: transaction.id,
-          eventType: FactoringEventType.FUNDS_RESERVED,
-          statusTo: FactoringTransactionStatus.PENDING,
-          message: "Pool funds reserved for the seller withdrawal.",
-          metadata: {
-            reservedAt: reservedAt.toISOString(),
-          },
-        },
-        {
-          organizationId,
-          userId: input.userId,
-          importedInvoiceId: invoice.id,
-          factoringTransactionId: transaction.id,
-          eventType: FactoringEventType.ARENA_SETTLEMENT_PREPARED,
-          statusTo: FactoringTransactionStatus.PENDING,
-          message: preparedSettlement.message,
-          metadata: {
-            capitalSourceKey: preparedSettlement.capitalSourceKey,
-            settlementReference: preparedSettlement.settlementReference,
-            network: preparedSettlement.network,
-            onChainExecutionStatus: preparedSettlement.onChainExecutionStatus,
-          },
-        },
-      ],
-    });
-
-    await bookFunding(tx, {
-      organizationId,
+    const existing = await findActiveFactoringTransactionForInvoice({
       userId: input.userId,
       importedInvoiceId: invoice.id,
-      transactionId: transaction.id,
-      capitalSourceId: capitalSource.id,
-      operatorWallet: preparedSettlement.operatorWallet ?? null,
-      settlementReference: preparedSettlement.settlementReference ?? null,
-      onChainExecutionStatus: preparedSettlement.onChainExecutionStatus,
-      settlementCurrency: calculated.settlementCurrency,
-      netProceeds: calculated.netProceeds,
     });
 
-    return {
-      created: true,
-      transaction: await hydrateTransaction(tx, transaction.id),
+    if (!existing) {
+      throw error;
+    }
+
+    result = {
+      created: false,
+      transaction: existing,
     };
-  });
+  }
 
   logger.info("factoring.transaction_created", {
     created: result.created,
@@ -963,14 +1065,10 @@ export async function createFactoringTransactionForUser(
   return createFactoringTransaction(createTransactionDeps, input);
 }
 
-export async function transitionFactoringTransactionForUser(
+async function transitionFactoringTransaction(
   input: TransitionFactoringTransactionInput,
+  transaction: Awaited<ReturnType<typeof getFactoringTransactionForUser>>,
 ) {
-  const transaction = await getFactoringTransactionForUser({
-    userId: input.userId,
-    transactionId: input.transactionId,
-  });
-
   if (!transaction) {
     throw new AppError(
       "Factoring transaction not found.",
@@ -1001,9 +1099,11 @@ export async function transitionFactoringTransactionForUser(
     );
   }
 
-  const updated = await prisma.$transaction(async (tx) => {
+  const updated = await runSerializableTransaction(async (tx) => {
     const organizationId =
-      transaction.organizationId ?? transaction.importedInvoice.organizationId ?? null;
+      transaction.organizationId ??
+      transaction.importedInvoice.organizationId ??
+      null;
 
     if (input.targetStatus === FactoringTransactionStatus.FUNDED) {
       await bookFunding(tx, {
@@ -1015,7 +1115,8 @@ export async function transitionFactoringTransactionForUser(
         operatorWallet: transaction.operatorWallet ?? null,
         settlementReference: transaction.arenaSettlementReference ?? null,
         onChainExecutionStatus:
-          transaction.onChainExecutionStatus === OnChainExecutionStatus.NOT_STARTED
+          transaction.onChainExecutionStatus ===
+          OnChainExecutionStatus.NOT_STARTED
             ? OnChainExecutionStatus.SIMULATED
             : transaction.onChainExecutionStatus,
         settlementCurrency: transaction.settlementCurrency,
@@ -1039,4 +1140,28 @@ export async function transitionFactoringTransactionForUser(
   });
 
   return updated;
+}
+
+export async function transitionFactoringTransactionForUser(
+  input: TransitionFactoringTransactionInput,
+) {
+  const transaction = await getFactoringTransactionForUser({
+    userId: input.userId,
+    transactionId: input.transactionId,
+  });
+
+  return transitionFactoringTransaction(input, transaction);
+}
+
+export async function transitionFactoringTransactionForCapitalSource(
+  input: TransitionFactoringTransactionInput & {
+    capitalSourceId: string;
+  },
+) {
+  const transaction = await getFactoringTransactionForCapitalSource({
+    capitalSourceId: input.capitalSourceId,
+    transactionId: input.transactionId,
+  });
+
+  return transitionFactoringTransaction(input, transaction);
 }

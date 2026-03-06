@@ -1,3 +1,5 @@
+import "server-only";
+
 import { addMinutes } from "date-fns";
 import { AuthIdentityProvider, Prisma } from "@prisma/client";
 

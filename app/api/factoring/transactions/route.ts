@@ -1,73 +1,28 @@
-import { SettlementMethod } from "@prisma/client";
-import { NextResponse } from "next/server";
-import { z } from "zod";
-
-import { getCurrentSessionUser } from "@/lib/auth/session";
+import { createFactoringTransactionSchema } from "@/lib/factoring/schemas";
 import { createFactoringTransactionForUser } from "@/lib/factoring/transactions";
-import { logger } from "@/lib/logging/logger";
-import { assertValidAppRequestOrigin } from "@/lib/security/origin";
-import { enforceRateLimit, getRequestIp } from "@/lib/security/rate-limit";
-import { getPublicError } from "@/lib/utils/errors";
-
-const createFactoringTransactionSchema = z
-  .object({
-    importedInvoiceId: z.string().min(1),
-    settlementMethod: z.nativeEnum(SettlementMethod),
-    acceptTerms: z.boolean(),
-    walletAddress: z.string().optional(),
-    bankAccountLabel: z.string().optional(),
-    debitCardLabel: z.string().optional(),
-  })
-  .superRefine((value, ctx) => {
-    if (value.settlementMethod === SettlementMethod.USDC_WALLET && !value.walletAddress) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["walletAddress"],
-        message: "Wallet address is required for USDC settlement.",
-      });
-    }
-
-    if (value.settlementMethod === SettlementMethod.ACH && !value.bankAccountLabel) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["bankAccountLabel"],
-        message: "Bank account label is required for ACH settlement.",
-      });
-    }
-
-    if (value.settlementMethod === SettlementMethod.DEBIT_CARD && !value.debitCardLabel) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["debitCardLabel"],
-        message: "Debit card last four digits are required.",
-      });
-    }
-  });
+import {
+  getRequestContext,
+  guardApiMutation,
+  handleApiError,
+  jsonNoStore,
+  parseJsonBody,
+  requireApiUser,
+} from "@/lib/server/http";
 
 export async function POST(request: Request) {
-  const user = await getCurrentSessionUser();
-
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-  }
+  const requestContext = getRequestContext(request);
 
   try {
-    assertValidAppRequestOrigin(request);
-
-    const rateLimit = await enforceRateLimit({
-      key: `factoring:create:${user.id}:${getRequestIp(request)}`,
-      limit: 20,
-      windowMs: 60_000,
+    const user = await requireApiUser();
+    await guardApiMutation(request, {
+      rateLimit: {
+        key: `factoring:create:${user.id}:${requestContext.ip}`,
+        limit: 20,
+        windowMs: 60_000,
+      },
     });
 
-    if (!rateLimit.allowed) {
-      return NextResponse.json(
-        { error: "Rate limit reached." },
-        { status: 429 },
-      );
-    }
-
-    const payload = createFactoringTransactionSchema.parse(await request.json());
+    const payload = await parseJsonBody(request, createFactoringTransactionSchema);
     const result = await createFactoringTransactionForUser({
       userId: user.id,
       importedInvoiceId: payload.importedInvoiceId,
@@ -78,7 +33,7 @@ export async function POST(request: Request) {
       debitCardLabel: payload.debitCardLabel,
     });
 
-    return NextResponse.json({
+    return jsonNoStore({
       ok: true,
       created: result.created,
       redirectTo: `/factoring-dashboard/transactions/${result.transaction.id}`,
@@ -89,11 +44,6 @@ export async function POST(request: Request) {
       },
     });
   } catch (error) {
-    logger.error("factoring.create_transaction_failed", { error });
-    const publicError = getPublicError(error);
-    return NextResponse.json(
-      { error: publicError.message, code: publicError.code },
-      { status: publicError.statusCode },
-    );
+    return handleApiError("factoring.create_transaction_failed", error, requestContext);
   }
 }

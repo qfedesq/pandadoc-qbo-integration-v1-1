@@ -1,6 +1,5 @@
 import {
   FactoringTransactionStatus,
-  InvoiceStatus,
   LedgerOwnerType,
   Provider,
 } from "@prisma/client";
@@ -10,12 +9,15 @@ import { FactoringConnectionCard } from "@/components/factoring-connection-card"
 import { InvoiceFilters } from "@/components/invoice-filters";
 import { FactoringSetupGuide } from "@/components/factoring-setup-guide";
 import { InvoiceTable } from "@/components/invoice-table";
+import { QueryPagination } from "@/components/query-pagination";
 import { RecentFactoringTransactions } from "@/components/recent-factoring-transactions";
 import { SyncButton } from "@/components/sync-button";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { requireUser } from "@/lib/auth/require-user";
 import {
+  countEligibleFactoringInvoicesForUser,
+  countFactoringInvoicesForUser,
   countFactoringTransactionsByStatus,
   getOrCreateManagedCapitalSource,
   getWalletBalance,
@@ -25,7 +27,7 @@ import {
 import { findUserConnection } from "@/lib/db/integrations";
 import { getLatestSyncRun } from "@/lib/db/invoices";
 import { hasPandaDocImportConfig } from "@/lib/env";
-import { evaluateFactoringEligibility } from "@/lib/factoring/eligibility";
+import { invoiceListSearchParamsSchema } from "@/lib/invoices/schemas";
 import {
   getInvoiceSyncConfiguration,
   getNextInvoiceSyncAt,
@@ -34,63 +36,66 @@ import {
   getProviderOauthConfigurationMessage,
   isProviderOauthConfigured,
 } from "@/lib/providers/configuration";
+import { parseSearchParams } from "@/lib/server/http";
 import { formatCurrency, formatDateTime } from "@/lib/utils";
 
-type SearchParams = {
-  q?: string;
-  status?: string;
-  overdue?: string;
-};
-
 type Props = {
-  searchParams?: Promise<SearchParams>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
-
-function isInvoiceStatus(value?: string): value is InvoiceStatus {
-  return Boolean(value && Object.values(InvoiceStatus).includes(value as InvoiceStatus));
-}
 
 export default async function FactoringDashboardPage({ searchParams }: Props) {
   const user = await requireUser();
-  const query = (await searchParams) ?? {};
+  const query = parseSearchParams(
+    (await searchParams) ?? {},
+    invoiceListSearchParamsSchema,
+  );
   const [pandaDocConnection, quickBooksConnection] = await Promise.all([
     findUserConnection(user.id, Provider.PANDADOC),
     findUserConnection(user.id, Provider.QUICKBOOKS),
   ]);
   const [
     invoices,
+    totalInvoices,
+    eligibleInvoicesCount,
     recentTransactions,
     activeTransactionsCount,
     repaidTransactionsCount,
     capitalSource,
     sellerWalletBalance,
-  ] =
-    await Promise.all([
-      listFactoringInvoicesForUser({
-        userId: user.id,
-        search: query.q,
-        status: isInvoiceStatus(query.status) ? query.status : "ALL",
-        overdueOnly: query.overdue === "true",
-      }),
-      listRecentFactoringTransactionsForUser(user.id, 6),
-      countFactoringTransactionsByStatus({
-        userId: user.id,
-        statuses: [
-          FactoringTransactionStatus.PENDING,
-          FactoringTransactionStatus.FUNDED,
-        ],
-      }),
-      countFactoringTransactionsByStatus({
-        userId: user.id,
-        statuses: [FactoringTransactionStatus.REPAID],
-      }),
-      getOrCreateManagedCapitalSource(),
-      getWalletBalance({
-        ownerType: LedgerOwnerType.SELLER,
-        ownerId: user.id,
-        currency: "USDC",
-      }),
-    ]);
+  ] = await Promise.all([
+    listFactoringInvoicesForUser({
+      userId: user.id,
+      search: query.q,
+      status: query.status,
+      overdueOnly: query.overdue,
+      page: query.page,
+    }),
+    countFactoringInvoicesForUser({
+      userId: user.id,
+      search: query.q,
+      status: query.status,
+      overdueOnly: query.overdue,
+    }),
+    countEligibleFactoringInvoicesForUser(user.id),
+    listRecentFactoringTransactionsForUser(user.id, 6),
+    countFactoringTransactionsByStatus({
+      userId: user.id,
+      statuses: [
+        FactoringTransactionStatus.PENDING,
+        FactoringTransactionStatus.FUNDED,
+      ],
+    }),
+    countFactoringTransactionsByStatus({
+      userId: user.id,
+      statuses: [FactoringTransactionStatus.REPAID],
+    }),
+    getOrCreateManagedCapitalSource(),
+    getWalletBalance({
+      ownerType: LedgerOwnerType.SELLER,
+      ownerId: user.id,
+      currency: "USDC",
+    }),
+  ]);
   const latestSync = quickBooksConnection
     ? await getLatestSyncRun(quickBooksConnection.id)
     : null;
@@ -104,15 +109,6 @@ export default async function FactoringDashboardPage({ searchParams }: Props) {
     quickBooksConnection && quickBooksConnected
       ? getNextInvoiceSyncAt(quickBooksConnection.lastSyncAt)
       : null;
-  const eligibleInvoicesCount = invoices.filter((invoice) =>
-    evaluateFactoringEligibility({
-      balanceAmount: invoice.balanceAmount,
-      dueDate: invoice.dueDate,
-      normalizedStatus: invoice.normalizedStatus,
-      transactions: invoice.factoringTransactions,
-    }).eligible,
-  ).length;
-
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
@@ -120,7 +116,7 @@ export default async function FactoringDashboardPage({ searchParams }: Props) {
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
             PandaDoc embedded finance
           </p>
-          <h1 className="font-[var(--font-heading)] text-4xl font-semibold tracking-tight">
+          <h1 className="text-4xl font-[var(--font-heading)] font-semibold tracking-tight">
             Working capital dashboard
           </h1>
           <p className="max-w-3xl text-sm text-muted-foreground">
@@ -164,7 +160,9 @@ export default async function FactoringDashboardPage({ searchParams }: Props) {
           metadataLabel="Workspace / account ID"
           metadataValue={pandaDocConnection?.externalAccountId ?? "—"}
           providerConfigured={pandaDocConfigured}
-          configurationMessage={getProviderOauthConfigurationMessage(Provider.PANDADOC)}
+          configurationMessage={getProviderOauthConfigurationMessage(
+            Provider.PANDADOC,
+          )}
         />
         <FactoringConnectionCard
           provider={Provider.QUICKBOOKS}
@@ -174,7 +172,9 @@ export default async function FactoringDashboardPage({ searchParams }: Props) {
           metadataLabel="Realm ID"
           metadataValue={quickBooksConnection?.externalAccountId ?? "—"}
           providerConfigured={quickBooksConfigured}
-          configurationMessage={getProviderOauthConfigurationMessage(Provider.QUICKBOOKS)}
+          configurationMessage={getProviderOauthConfigurationMessage(
+            Provider.QUICKBOOKS,
+          )}
         />
       </div>
 
@@ -188,7 +188,7 @@ export default async function FactoringDashboardPage({ searchParams }: Props) {
               {eligibleInvoicesCount}
             </div>
             <p>
-              Open invoices above the minimum threshold and not already funded can
+              Outstanding invoices with a due date and no active advance can
               receive a capital offer.
             </p>
           </CardContent>
@@ -225,7 +225,10 @@ export default async function FactoringDashboardPage({ searchParams }: Props) {
           </CardHeader>
           <CardContent className="space-y-2 text-sm text-muted-foreground">
             <div className="text-2xl font-semibold text-foreground">
-              {formatCurrency(capitalSource.availableLiquidity.toString(), "USDC")}
+              {formatCurrency(
+                capitalSource.availableLiquidity.toString(),
+                "USDC",
+              )}
             </div>
             <p>Capital currently available for new withdrawals in the demo.</p>
           </CardContent>
@@ -299,7 +302,7 @@ export default async function FactoringDashboardPage({ searchParams }: Props) {
       </Card>
 
       <InvoiceFilters
-        overdueOnly={query.overdue === "true"}
+        overdueOnly={query.overdue}
         search={query.q}
         status={query.status}
       />
@@ -308,6 +311,19 @@ export default async function FactoringDashboardPage({ searchParams }: Props) {
         invoices={invoices}
         pandaDocConnected={pandaDocConnected}
         pandaDocImportEnabled={pandaDocImportEnabled}
+      />
+
+      <QueryPagination
+        pathname="/factoring-dashboard"
+        page={query.page}
+        pageSize={20}
+        totalItems={totalInvoices}
+        searchParams={{
+          q: query.q,
+          status: query.status,
+          overdue: query.overdue,
+        }}
+        label="invoices"
       />
 
       <RecentFactoringTransactions transactions={recentTransactions} />

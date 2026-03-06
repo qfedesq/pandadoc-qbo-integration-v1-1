@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
+import { buildCsrfHeaders } from "@/lib/security/csrf-client";
 
 type SettlementOption = {
   method: SettlementMethod;
@@ -34,7 +35,8 @@ export function FactoringTransactionForm({
   const [isPending, startTransition] = useTransition();
 
   const selectedOption =
-    settlementOptions.find((option) => option.method === method) ?? settlementOptions[0];
+    settlementOptions.find((option) => option.method === method) ??
+    settlementOptions[0];
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -53,17 +55,19 @@ export function FactoringTransactionForm({
     startTransition(async () => {
       const response = await fetch("/api/factoring/transactions", {
         method: "POST",
-        headers: {
+        headers: buildCsrfHeaders({
           "Content-Type": "application/json",
-        },
+        }),
         body: JSON.stringify(payload),
       });
 
       if (!response.ok) {
-        const responseBody = (await response.json().catch(() => null)) as
-          | { error?: string }
-          | null;
-        setError(responseBody?.error ?? "Unable to create the capital advance.");
+        const responseBody = (await response.json().catch(() => null)) as {
+          error?: string;
+        } | null;
+        setError(
+          responseBody?.error ?? "Unable to create the capital advance.",
+        );
         return;
       }
 
@@ -81,7 +85,9 @@ export function FactoringTransactionForm({
           id="settlementMethod"
           name="settlementMethod"
           value={method}
-          onChange={(event) => setMethod(event.target.value as SettlementMethod)}
+          onChange={(event) =>
+            setMethod(event.target.value as SettlementMethod)
+          }
         >
           {settlementOptions.map((option) => (
             <option key={option.method} value={option.method}>
@@ -90,7 +96,9 @@ export function FactoringTransactionForm({
           ))}
         </Select>
         {selectedOption ? (
-          <p className="text-sm text-muted-foreground">{selectedOption.description}</p>
+          <p className="text-sm text-muted-foreground">
+            {selectedOption.description}
+          </p>
         ) : null}
       </div>
 
@@ -147,9 +155,9 @@ export function FactoringTransactionForm({
           type="checkbox"
         />
         <span className="text-muted-foreground">
-          I accept the advance rate, fees, repayment amount, and settlement timing
-          shown above. Funding will reserve available capital and credit the
-          selected demo destination immediately in this MVP.
+          I accept the advance rate, fees, repayment amount, and settlement
+          timing shown above. Funding will reserve available capital and credit
+          the selected demo destination immediately in this MVP.
         </span>
       </label>
 

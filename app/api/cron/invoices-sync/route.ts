@@ -1,37 +1,25 @@
-import { NextResponse } from "next/server";
-import { z } from "zod";
-
+import { cronSyncQuerySchema } from "@/lib/invoices/schemas";
 import { runConfiguredInvoiceSync } from "@/lib/invoices/scheduled-sync";
-import { logger } from "@/lib/logging/logger";
 import { isAuthorizedSyncRequest } from "@/lib/security/sync-auth";
-import { getPublicError } from "@/lib/utils/errors";
-
-const cronSyncQuerySchema = z.object({
-  connectionId: z.string().min(1).optional(),
-  force: z
-    .enum(["true", "false", "1", "0"])
-    .optional()
-    .transform((value) => value === "true" || value === "1"),
-  userId: z.string().min(1).optional(),
-});
-
-function parseCronSyncQuery(request: Request) {
-  const url = new URL(request.url);
-
-  return cronSyncQuerySchema.parse({
-    connectionId: url.searchParams.get("connectionId") ?? undefined,
-    force: url.searchParams.get("force") ?? undefined,
-    userId: url.searchParams.get("userId") ?? undefined,
-  });
-}
+import {
+  getRequestContext,
+  handleApiError,
+  jsonNoStore,
+  parseSearchParams,
+} from "@/lib/server/http";
 
 export async function GET(request: Request) {
+  const requestContext = getRequestContext(request);
+
   if (!isAuthorizedSyncRequest(request, "vercel-cron")) {
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    return jsonNoStore({ error: "Unauthorized." }, { status: 401 });
   }
 
   try {
-    const query = parseCronSyncQuery(request);
+    const query = parseSearchParams(
+      new URL(request.url).searchParams,
+      cronSyncQuerySchema,
+    );
     const execution = await runConfiguredInvoiceSync({
       connectionId: query.connectionId,
       force: query.force,
@@ -39,17 +27,12 @@ export async function GET(request: Request) {
       userId: query.userId,
     });
 
-    return NextResponse.json({
+    return jsonNoStore({
       ok: true,
       source: "vercel-cron",
       ...execution,
     });
   } catch (error) {
-    logger.error("quickbooks.vercel_cron_sync_failed", { error });
-    const publicError = getPublicError(error);
-    return NextResponse.json(
-      { error: publicError.message, code: publicError.code },
-      { status: publicError.statusCode },
-    );
+    return handleApiError("quickbooks.vercel_cron_sync_failed", error, requestContext);
   }
 }

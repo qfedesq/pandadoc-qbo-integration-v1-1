@@ -47,6 +47,12 @@ enum AuthIdentityProvider {
   GOOGLE
 }
 
+enum UserRole {
+  SELLER
+  OPERATOR
+  ADMIN
+}
+
 enum MarketplaceNode {
   PANDADOC
 }
@@ -156,6 +162,7 @@ model User {
   organizationId String?
   email          String                  @unique
   name           String?
+  role           UserRole                @default(SELLER)
   passwordHash   String
   createdAt      DateTime                @default(now())
   updatedAt      DateTime                @updatedAt
@@ -173,6 +180,7 @@ model User {
   organization   Organization?           @relation(fields: [organizationId], references: [id], onDelete: SetNull)
 
   @@index([organizationId])
+  @@index([role])
   @@map("users")
 }
 
@@ -341,6 +349,7 @@ model ImportedInvoice {
   @@unique([connectionId, providerInvoiceId])
   @@index([userId, normalizedStatus])
   @@index([userId, factoringLifecycleStatus])
+  @@index([userId, dueDate, lastSyncedAt])
   @@index([connectionId, lastSyncedAt])
   @@index([counterpartyName])
   @@map("invoices")
@@ -564,6 +573,7 @@ model FactoringTransaction {
   walletLedgers              WalletLedger[]
 
   @@index([userId, status, createdAt])
+  @@index([userId, createdAt])
   @@index([importedInvoiceId, status])
   @@map("factoring_positions")
 }
@@ -586,6 +596,7 @@ model FactoringEventLog {
   factoringTransaction  FactoringTransaction?      @relation(fields: [factoringTransactionId], references: [id], onDelete: Cascade)
 
   @@index([userId, createdAt])
+  @@index([userId, eventType, createdAt])
   @@index([factoringTransactionId, createdAt])
   @@map("audit_events")
 }
@@ -608,6 +619,7 @@ model PoolTransaction {
   factoringTransaction  FactoringTransaction?      @relation(fields: [factoringTransactionId], references: [id], onDelete: SetNull)
 
   @@index([capitalSourceId, transactionType, createdAt])
+  @@index([capitalSourceId, createdAt])
   @@map("pool_transactions")
 }
 

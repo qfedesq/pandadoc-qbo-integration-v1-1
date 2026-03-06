@@ -1,6 +1,7 @@
 import { Provider, type IntegrationConnection } from "@prisma/client";
 import Link from "next/link";
 
+import { CsrfHiddenInput } from "@/components/csrf-hidden-input";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -40,7 +41,7 @@ export function FactoringConnectionCard({
   const accountName =
     provider === Provider.QUICKBOOKS
       ? getQuickBooksConnectionDisplayName(connection)
-      : connection?.externalAccountName ?? null;
+      : (connection?.externalAccountName ?? null);
   const connectHref =
     provider === Provider.PANDADOC
       ? "/api/oauth/pandadoc/connect"
@@ -94,8 +95,16 @@ export function FactoringConnectionCard({
       <CardFooter className="flex-col items-stretch gap-3 sm:flex-row">
         {providerConfigured ? (
           <form action={connectHref} method="post">
-            <input type="hidden" name="redirectTo" value="/factoring-dashboard" />
-            <Button type="submit" variant={isConnected ? "secondary" : "default"}>
+            <CsrfHiddenInput />
+            <input
+              type="hidden"
+              name="redirectTo"
+              value="/factoring-dashboard"
+            />
+            <Button
+              type="submit"
+              variant={isConnected ? "secondary" : "default"}
+            >
               {isConnected
                 ? provider === Provider.PANDADOC
                   ? "Reconnect workspace"
@@ -114,7 +123,9 @@ export function FactoringConnectionCard({
         )}
         <Button asChild variant="outline">
           <Link href="/integrations">
-            {isConnected ? "View integration settings" : "Open integration setup"}
+            {isConnected
+              ? "View integration settings"
+              : "Open integration setup"}
           </Link>
         </Button>
       </CardFooter>

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
 import { isRetryablePandaDocDocumentStatus } from "@/lib/pandadoc/document-status";
+import { buildCsrfHeaders } from "@/lib/security/csrf-client";
 
 export function ImportToPandaDocButton({
   importedInvoiceId,
@@ -27,25 +28,25 @@ export function ImportToPandaDocButton({
     startTransition(async () => {
       const response = await fetch("/api/pandadoc/import-invoice", {
         method: "POST",
-        headers: {
+        headers: buildCsrfHeaders({
           "Content-Type": "application/json",
-        },
+        }),
         body: JSON.stringify({
           importedInvoiceId,
         }),
       });
 
-      const payload = (await response.json().catch(() => null)) as
-        | {
-            error?: string;
-            created?: boolean;
-            sendRequested?: boolean;
-            sendInitiated?: boolean;
-          }
-        | null;
+      const payload = (await response.json().catch(() => null)) as {
+        error?: string;
+        created?: boolean;
+        sendRequested?: boolean;
+        sendInitiated?: boolean;
+      } | null;
 
       if (!response.ok) {
-        setMessage(payload?.error ?? "Unable to import the invoice into PandaDoc.");
+        setMessage(
+          payload?.error ?? "Unable to import the invoice into PandaDoc.",
+        );
         return;
       }
 
@@ -83,9 +84,13 @@ export function ImportToPandaDocButton({
               : "Import to PandaDoc"}
       </Button>
       {disabledReason ? (
-        <p className="max-w-48 text-xs text-muted-foreground">{disabledReason}</p>
+        <p className="max-w-48 text-xs text-muted-foreground">
+          {disabledReason}
+        </p>
       ) : null}
-      {message ? <p className="max-w-48 text-xs text-muted-foreground">{message}</p> : null}
+      {message ? (
+        <p className="max-w-48 text-xs text-muted-foreground">{message}</p>
+      ) : null}
     </div>
   );
 }

@@ -1,4 +1,7 @@
+import "server-only";
+
 import { addHours, addMinutes } from "date-fns";
+import { UserRole } from "@prisma/client";
 import { cookies } from "next/headers";
 
 import { prisma } from "@/lib/db/prisma";
@@ -13,6 +16,7 @@ export type SessionUser = {
   id: string;
   email: string;
   name: string | null;
+  role: UserRole;
 };
 
 function buildSessionCookieOptions(expiresAt: Date) {
@@ -86,12 +90,9 @@ export async function getCurrentSessionUser(): Promise<SessionUser | null> {
   let session;
 
   try {
-    session = await prisma.appSession.findFirst({
+    session = await prisma.appSession.findUnique({
       where: {
         sessionTokenHash: sha256(sessionToken),
-        expiresAt: {
-          gt: new Date(),
-        },
       },
       include: {
         user: {
@@ -99,6 +100,7 @@ export async function getCurrentSessionUser(): Promise<SessionUser | null> {
             id: true,
             email: true,
             name: true,
+            role: true,
           },
         },
       },
@@ -113,6 +115,11 @@ export async function getCurrentSessionUser(): Promise<SessionUser | null> {
   }
 
   if (!session) {
+    return null;
+  }
+
+  if (session.expiresAt <= new Date()) {
+    cookieStore.delete(env.SESSION_COOKIE_NAME);
     return null;
   }
 
@@ -131,6 +138,11 @@ export async function getCurrentSessionUser(): Promise<SessionUser | null> {
           lastSeenAt: new Date(),
         },
       });
+      cookieStore.set(
+        env.SESSION_COOKIE_NAME,
+        sessionToken,
+        buildSessionCookieOptions(newExpiresAt),
+      );
     } catch (error) {
       logger.warn("auth.session_touch_failed", { error });
     }

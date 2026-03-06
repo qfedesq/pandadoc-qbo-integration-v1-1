@@ -1,5 +1,8 @@
+import "server-only";
+
 import {
   CapitalSourceType,
+  InvoiceStatus,
   Prisma,
   type FactoringEligibilityStatus,
   type FactoringTransactionStatus,
@@ -8,7 +11,11 @@ import {
 import { prisma } from "@/lib/db/prisma";
 import { buildImportedInvoiceWhereInput } from "@/lib/db/invoices";
 import { env } from "@/lib/env";
-import { DEFAULT_CAPITAL_SOURCE_KEY, DEFAULT_MARKETPLACE_NODE } from "@/lib/factoring/marketplace";
+import {
+  DEFAULT_CAPITAL_SOURCE_KEY,
+  DEFAULT_MARKETPLACE_NODE,
+} from "@/lib/factoring/marketplace";
+import { clampPageSize, getPagination } from "@/lib/pagination";
 
 const documentLinksInclude = {
   orderBy: {
@@ -63,9 +70,10 @@ const factoringTransactionInclude = {
   },
 } satisfies Prisma.FactoringTransactionInclude;
 
-export type FactoringTransactionWithRelations = Prisma.FactoringTransactionGetPayload<{
-  include: typeof factoringTransactionInclude;
-}>;
+export type FactoringTransactionWithRelations =
+  Prisma.FactoringTransactionGetPayload<{
+    include: typeof factoringTransactionInclude;
+  }>;
 
 function buildCapitalSourceMetadata() {
   return {
@@ -120,11 +128,55 @@ export async function listFactoringInvoicesForUser(input: {
   search?: string;
   status?: import("@prisma/client").InvoiceStatus | "ALL";
   overdueOnly?: boolean;
+  page?: number;
+  pageSize?: number;
 }) {
+  const pagination = getPagination({
+    page: input.page,
+    pageSize: input.pageSize,
+  });
+
   return prisma.importedInvoice.findMany({
     where: buildImportedInvoiceWhereInput(input),
     include: factoringInvoiceInclude,
     orderBy: [{ dueDate: "asc" }, { lastSyncedAt: "desc" }],
+    skip: pagination.skip,
+    take: pagination.take,
+  });
+}
+
+export async function countFactoringInvoicesForUser(input: {
+  userId: string;
+  search?: string;
+  status?: import("@prisma/client").InvoiceStatus | "ALL";
+  overdueOnly?: boolean;
+}) {
+  return prisma.importedInvoice.count({
+    where: buildImportedInvoiceWhereInput(input),
+  });
+}
+
+export async function countEligibleFactoringInvoicesForUser(userId: string) {
+  return prisma.importedInvoice.count({
+    where: {
+      userId,
+      balanceAmount: {
+        gt: 0,
+      },
+      dueDate: {
+        not: null,
+      },
+      normalizedStatus: {
+        in: [InvoiceStatus.OPEN, InvoiceStatus.PARTIALLY_PAID],
+      },
+      factoringTransactions: {
+        none: {
+          status: {
+            in: ["PENDING", "FUNDED"] satisfies FactoringTransactionStatus[],
+          },
+        },
+      },
+    },
   });
 }
 
@@ -145,6 +197,8 @@ export async function listRecentFactoringTransactionsForUser(
   userId: string,
   take = 5,
 ) {
+  const boundedTake = clampPageSize(take);
+
   return prisma.factoringTransaction.findMany({
     where: {
       userId,
@@ -153,7 +207,7 @@ export async function listRecentFactoringTransactionsForUser(
     orderBy: {
       createdAt: "desc",
     },
-    take,
+    take: boundedTake,
   });
 }
 
@@ -165,6 +219,19 @@ export async function getFactoringTransactionForUser(input: {
     where: {
       id: input.transactionId,
       userId: input.userId,
+    },
+    include: factoringTransactionInclude,
+  });
+}
+
+export async function getFactoringTransactionForCapitalSource(input: {
+  capitalSourceId: string;
+  transactionId: string;
+}) {
+  return prisma.factoringTransaction.findFirst({
+    where: {
+      id: input.transactionId,
+      capitalSourceId: input.capitalSourceId,
     },
     include: factoringTransactionInclude,
   });
@@ -283,6 +350,19 @@ export async function countFactoringTransactionsByStatus(input: {
   });
 }
 
+export async function sumFactoringNetProceedsForUser(userId: string) {
+  const result = await prisma.factoringTransaction.aggregate({
+    where: {
+      userId,
+    },
+    _sum: {
+      netProceeds: true,
+    },
+  });
+
+  return result._sum.netProceeds ?? new Prisma.Decimal(0);
+}
+
 export async function listFactoringOffersForUser(userId: string) {
   return prisma.factoringOffer.findMany({
     where: {
@@ -293,9 +373,15 @@ export async function listFactoringOffersForUser(userId: string) {
 
 export async function listFactoringTransactionsForUser(input: {
   userId: string;
+  page?: number;
   take?: number;
   statuses?: FactoringTransactionStatus[];
 }) {
+  const pagination = getPagination({
+    page: input.page,
+    pageSize: input.take,
+  });
+
   return prisma.factoringTransaction.findMany({
     where: {
       userId: input.userId,
@@ -309,7 +395,69 @@ export async function listFactoringTransactionsForUser(input: {
     orderBy: {
       createdAt: "desc",
     },
-    take: input.take,
+    skip: pagination.skip,
+    take: pagination.take,
+  });
+}
+
+export async function listFactoringTransactionsForCapitalSource(input: {
+  capitalSourceId: string;
+  page?: number;
+  take?: number;
+  statuses?: FactoringTransactionStatus[];
+}) {
+  const pagination = getPagination({
+    page: input.page,
+    pageSize: input.take,
+  });
+
+  return prisma.factoringTransaction.findMany({
+    where: {
+      capitalSourceId: input.capitalSourceId,
+      status: input.statuses
+        ? {
+            in: input.statuses,
+          }
+        : undefined,
+    },
+    include: factoringTransactionInclude,
+    orderBy: {
+      createdAt: "desc",
+    },
+    skip: pagination.skip,
+    take: pagination.take,
+  });
+}
+
+export async function countFactoringTransactionsForUser(input: {
+  userId: string;
+  statuses?: FactoringTransactionStatus[];
+}) {
+  return prisma.factoringTransaction.count({
+    where: {
+      userId: input.userId,
+      status: input.statuses
+        ? {
+            in: input.statuses,
+          }
+        : undefined,
+    },
+  });
+}
+
+export async function countFactoringTransactionsForCapitalSource(input: {
+  capitalSourceId: string;
+  statuses?: FactoringTransactionStatus[];
+}) {
+  return prisma.factoringTransaction.count({
+    where: {
+      capitalSourceId: input.capitalSourceId,
+      status: input.statuses
+        ? {
+            in: input.statuses,
+          }
+        : undefined,
+    },
   });
 }
 
@@ -317,6 +465,8 @@ export async function listFactoringEventsForUser(input: {
   userId: string;
   take?: number;
 }) {
+  const boundedTake = clampPageSize(input.take);
+
   return prisma.factoringEventLog.findMany({
     where: {
       userId: input.userId,
@@ -328,7 +478,30 @@ export async function listFactoringEventsForUser(input: {
     orderBy: {
       createdAt: "desc",
     },
-    take: input.take,
+    take: boundedTake,
+  });
+}
+
+export async function listFactoringEventsForCapitalSource(input: {
+  capitalSourceId: string;
+  take?: number;
+}) {
+  const boundedTake = clampPageSize(input.take);
+
+  return prisma.factoringEventLog.findMany({
+    where: {
+      factoringTransaction: {
+        capitalSourceId: input.capitalSourceId,
+      },
+    },
+    include: {
+      importedInvoice: true,
+      factoringTransaction: true,
+    },
+    orderBy: {
+      createdAt: "desc",
+    },
+    take: boundedTake,
   });
 }
 
@@ -355,6 +528,8 @@ export async function listWalletLedgerEntries(input: {
   userId?: string;
   take?: number;
 }) {
+  const boundedTake = clampPageSize(input.take);
+
   return prisma.walletLedger.findMany({
     where: {
       ownerType: input.ownerType,
@@ -372,7 +547,7 @@ export async function listWalletLedgerEntries(input: {
     orderBy: {
       createdAt: "desc",
     },
-    take: input.take,
+    take: boundedTake,
   });
 }
 
@@ -380,6 +555,8 @@ export async function listPoolTransactions(input: {
   capitalSourceId: string;
   take?: number;
 }) {
+  const boundedTake = clampPageSize(input.take);
+
   return prisma.poolTransaction.findMany({
     where: {
       capitalSourceId: input.capitalSourceId,
@@ -390,7 +567,7 @@ export async function listPoolTransactions(input: {
     orderBy: {
       createdAt: "desc",
     },
-    take: input.take,
+    take: boundedTake,
   });
 }
 
