@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db/prisma";
 import { env, isProduction } from "@/lib/env";
 import { logger } from "@/lib/logging/logger";
 import { createOpaqueToken, sha256 } from "@/lib/security/hash";
+import { isDatabaseUnavailableError } from "@/lib/utils/errors";
 
 const SESSION_ROTATE_WINDOW_MINUTES = 30;
 
@@ -56,11 +57,19 @@ export async function destroyCurrentSession() {
   const sessionToken = cookieStore.get(env.SESSION_COOKIE_NAME)?.value;
 
   if (sessionToken) {
-    await prisma.appSession.deleteMany({
-      where: {
-        sessionTokenHash: sha256(sessionToken),
-      },
-    });
+    try {
+      await prisma.appSession.deleteMany({
+        where: {
+          sessionTokenHash: sha256(sessionToken),
+        },
+      });
+    } catch (error) {
+      if (!isDatabaseUnavailableError(error)) {
+        throw error;
+      }
+
+      logger.warn("auth.session_destroy_unavailable", { error });
+    }
   }
 
   cookieStore.delete(env.SESSION_COOKIE_NAME);
@@ -74,23 +83,35 @@ export async function getCurrentSessionUser(): Promise<SessionUser | null> {
     return null;
   }
 
-  const session = await prisma.appSession.findFirst({
-    where: {
-      sessionTokenHash: sha256(sessionToken),
-      expiresAt: {
-        gt: new Date(),
-      },
-    },
-    include: {
-      user: {
-        select: {
-          id: true,
-          email: true,
-          name: true,
+  let session;
+
+  try {
+    session = await prisma.appSession.findFirst({
+      where: {
+        sessionTokenHash: sha256(sessionToken),
+        expiresAt: {
+          gt: new Date(),
         },
       },
-    },
-  });
+      include: {
+        user: {
+          select: {
+            id: true,
+            email: true,
+            name: true,
+          },
+        },
+      },
+    });
+  } catch (error) {
+    if (!isDatabaseUnavailableError(error)) {
+      throw error;
+    }
+
+    logger.warn("auth.session_lookup_unavailable", { error });
+    cookieStore.delete(env.SESSION_COOKIE_NAME);
+    return null;
+  }
 
   if (!session) {
     cookieStore.delete(env.SESSION_COOKIE_NAME);
@@ -102,21 +123,25 @@ export async function getCurrentSessionUser(): Promise<SessionUser | null> {
   ) {
     const newExpiresAt = addHours(new Date(), env.SESSION_TTL_HOURS);
 
-    await prisma.appSession.update({
-      where: {
-        id: session.id,
-      },
-      data: {
-        expiresAt: newExpiresAt,
-        lastSeenAt: new Date(),
-      },
-    });
+    try {
+      await prisma.appSession.update({
+        where: {
+          id: session.id,
+        },
+        data: {
+          expiresAt: newExpiresAt,
+          lastSeenAt: new Date(),
+        },
+      });
 
-    cookieStore.set(
-      env.SESSION_COOKIE_NAME,
-      sessionToken,
-      buildSessionCookieOptions(newExpiresAt),
-    );
+      cookieStore.set(
+        env.SESSION_COOKIE_NAME,
+        sessionToken,
+        buildSessionCookieOptions(newExpiresAt),
+      );
+    } catch (error) {
+      logger.warn("auth.session_touch_failed", { error });
+    }
   } else {
     prisma.appSession
       .update({

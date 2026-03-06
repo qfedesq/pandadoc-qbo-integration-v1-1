@@ -21,6 +21,26 @@ export function getErrorMessage(error: unknown) {
   return "Unknown error";
 }
 
+const DATABASE_UNAVAILABLE_PATTERNS = [
+  /error in postgresql connection/i,
+  /can't reach database server/i,
+  /server has closed the connection/i,
+  /connection (?:closed|terminated|reset)/i,
+  /\bECONNRESET\b/i,
+  /\bECONNREFUSED\b/i,
+  /\bETIMEDOUT\b/i,
+  /\bP1001\b/i,
+];
+
+export function isDatabaseUnavailableError(error: unknown) {
+  if (error instanceof Prisma.PrismaClientInitializationError) {
+    return true;
+  }
+
+  const message = getErrorMessage(error);
+  return DATABASE_UNAVAILABLE_PATTERNS.some((pattern) => pattern.test(message));
+}
+
 export function getPublicError(error: unknown) {
   if (error instanceof AppError) {
     return {
@@ -38,7 +58,7 @@ export function getPublicError(error: unknown) {
     };
   }
 
-  if (error instanceof Prisma.PrismaClientInitializationError) {
+  if (isDatabaseUnavailableError(error)) {
     return {
       message: "Service temporarily unavailable. The application database is not reachable.",
       statusCode: 503,
