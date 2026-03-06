@@ -109,12 +109,10 @@ export async function getCurrentSessionUser(): Promise<SessionUser | null> {
     }
 
     logger.warn("auth.session_lookup_unavailable", { error });
-    cookieStore.delete(env.SESSION_COOKIE_NAME);
     return null;
   }
 
   if (!session) {
-    cookieStore.delete(env.SESSION_COOKIE_NAME);
     return null;
   }
 
@@ -133,12 +131,6 @@ export async function getCurrentSessionUser(): Promise<SessionUser | null> {
           lastSeenAt: new Date(),
         },
       });
-
-      cookieStore.set(
-        env.SESSION_COOKIE_NAME,
-        sessionToken,
-        buildSessionCookieOptions(newExpiresAt),
-      );
     } catch (error) {
       logger.warn("auth.session_touch_failed", { error });
     }
