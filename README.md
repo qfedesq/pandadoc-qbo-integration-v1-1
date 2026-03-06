@@ -30,6 +30,27 @@ Primary demo actions:
 - filter and inspect imported invoices
 - click `Import to PandaDoc` for an invoice with payer email
 
+## Dashboard preview
+
+![PandaDoc Factoring Dashboard demo](./public/factoring-dashboard-demo.png)
+
+## Local demo access
+
+For a clean local demo with seeded data:
+
+1. Copy [/.env.example](/Users/qfedesq/Desktop/PandaDoc/.env.example) to `.env`
+2. Start Postgres with `docker compose up -d postgres`
+3. Run `npm install`
+4. Run `npm run db:deploy && npm run db:seed`
+5. Start the app with `npm run dev`
+
+Default local demo sign-in from `.env.example`:
+
+- Email: `admin@example.com`
+- Password: `ChangeMe123!`
+
+These credentials are for local seeded development only. Production credentials, OAuth secrets, token encryption keys, and sync secrets must be provided through your real environment configuration and must never be committed.
+
 ## Demo flow
 
 For a reviewer or stakeholder demo, the shortest path is:
