@@ -49,31 +49,55 @@ describe("factoring transaction orchestration", () => {
     vi.restoreAllMocks();
   });
 
-  it("creates a pending factoring transaction and emits audit events", async () => {
+  it("creates a funded factoring transaction and emits audit events", async () => {
     const topLevelEventCreate = vi.fn().mockResolvedValue(undefined);
     const txEventCreate = vi.fn().mockResolvedValue(undefined);
+    const txEventCreateMany = vi.fn().mockResolvedValue(undefined);
     const finalTransaction = {
       id: "transaction_1",
       transactionReference: "FACT-20260306-ABC123",
-      status: "PENDING",
+      status: "FUNDED",
       settlementMethod: SettlementMethod.USDC_WALLET,
       settlementDestinationMasked: "Wallet 0x1234...abcd",
       settlementCurrency: "USDC",
-      netProceeds: "1200.00",
+      netProceeds: "1044.53",
     };
     const tx = {
       factoringTransaction: {
         findFirst: vi.fn().mockResolvedValue(null),
         create: vi.fn().mockResolvedValue({ id: "transaction_1" }),
+        update: vi.fn().mockResolvedValue(undefined),
         findUniqueOrThrow: vi.fn().mockResolvedValue(finalTransaction),
       },
       factoringEventLog: {
         create: txEventCreate,
+        createMany: txEventCreateMany,
+      },
+      importedInvoice: {
+        update: vi.fn().mockResolvedValue(undefined),
+      },
+      capitalSource: {
+        findUniqueOrThrow: vi.fn().mockResolvedValue({
+          id: "capital_source_1",
+          availableLiquidity: "500000.00",
+          deployedLiquidity: "0.00",
+        }),
+        update: vi.fn().mockResolvedValue(undefined),
+      },
+      poolTransaction: {
+        create: vi.fn().mockResolvedValue(undefined),
+      },
+      walletLedger: {
+        findFirst: vi.fn().mockResolvedValue(null),
+        create: vi.fn().mockResolvedValue(undefined),
       },
     };
     const prismaMock = {
       factoringEventLog: {
         create: topLevelEventCreate,
+      },
+      importedInvoice: {
+        update: vi.fn().mockResolvedValue(undefined),
       },
       $transaction: vi.fn(async (callback: (client: typeof tx) => unknown) =>
         callback(tx),
@@ -95,6 +119,9 @@ describe("factoring transaction orchestration", () => {
         network: "Arena StaFi",
         currency: "USDC",
         operatorWallet: "0xProtofireOperatorWalletDemo",
+        availableLiquidity: "500000.00",
+        targetAdvanceRateBps: 9000,
+        operatorFeeBps: 50,
       }),
       upsertOffer: vi.fn().mockResolvedValue({
         id: "offer_1",
@@ -130,7 +157,8 @@ describe("factoring transaction orchestration", () => {
         }),
       }),
     );
-    expect(txEventCreate).toHaveBeenCalledTimes(3);
+    expect(txEventCreateMany).toHaveBeenCalledTimes(1);
+    expect(txEventCreate).toHaveBeenCalledTimes(1);
     expect(result).toEqual({
       created: true,
       transaction: finalTransaction,
@@ -156,6 +184,9 @@ describe("factoring transaction orchestration", () => {
       factoringEventLog: {
         create: vi.fn().mockResolvedValue(undefined),
       },
+      importedInvoice: {
+        update: vi.fn().mockResolvedValue(undefined),
+      },
       $transaction: vi.fn(async (callback: (client: typeof tx) => unknown) =>
         callback(tx),
       ),
@@ -176,6 +207,9 @@ describe("factoring transaction orchestration", () => {
         network: "Arena StaFi",
         currency: "USDC",
         operatorWallet: "0xProtofireOperatorWalletDemo",
+        availableLiquidity: "500000.00",
+        targetAdvanceRateBps: 9000,
+        operatorFeeBps: 50,
       }),
       upsertOffer: vi.fn().mockResolvedValue({
         id: "offer_1",

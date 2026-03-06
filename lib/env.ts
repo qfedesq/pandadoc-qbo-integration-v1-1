@@ -35,12 +35,16 @@ const envSchema = z.object({
     )
     .default(true),
   INVOICE_SYNC_INTERVAL_MINUTES: z.coerce.number().int().positive().default(60),
+  QUICKBOOKS_MODE: z.enum(["mock", "oauth"]).default("mock"),
   FACTORING_BASE_DISCOUNT_BPS: z.coerce.number().int().positive().default(450),
   FACTORING_PARTIAL_PAYMENT_DISCOUNT_BPS: z.coerce
     .number()
     .int()
     .positive()
     .default(325),
+  FACTORING_ADVANCE_RATE_BPS: z.coerce.number().int().positive().default(9000),
+  FACTORING_PROTOCOL_FEE_BPS: z.coerce.number().int().nonnegative().default(50),
+  FACTORING_MIN_INVOICE_AMOUNT: z.coerce.number().positive().default(500),
   FACTORING_MIN_NET_PROCEEDS: z.coerce.number().positive().default(250),
   ARENA_STAFI_POOL_NAME: z
     .string()
@@ -171,6 +175,10 @@ export function hasQuickBooksOauthConfig() {
     isConfiguredValue(env.QUICKBOOKS_CLIENT_ID) &&
       isConfiguredValue(env.QUICKBOOKS_CLIENT_SECRET),
   );
+}
+
+export function isQuickBooksMockMode() {
+  return env.QUICKBOOKS_MODE === "mock";
 }
 
 export function assertSecureTokenEncryptionConfiguration() {

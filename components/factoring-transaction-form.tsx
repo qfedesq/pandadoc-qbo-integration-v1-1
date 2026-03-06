@@ -147,9 +147,9 @@ export function FactoringTransactionForm({
           type="checkbox"
         />
         <span className="text-muted-foreground">
-          I accept the discount rate, net proceeds, and settlement timing shown
-          above. I understand Tier 1 uses a managed Arena StaFi-ready pool with
-          simulated on-chain execution.
+          I accept the advance rate, fees, repayment amount, and settlement timing
+          shown above. Funding will reserve pool liquidity and credit my demo
+          wallet immediately in this MVP.
         </span>
       </label>
 
@@ -160,7 +160,7 @@ export function FactoringTransactionForm({
       ) : null}
 
       <Button disabled={isPending || !acceptTerms} type="submit">
-        {isPending ? "Submitting..." : "Confirm withdrawal"}
+        {isPending ? "Funding..." : "Accept terms and fund invoice"}
       </Button>
     </form>
   );

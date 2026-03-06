@@ -60,6 +60,16 @@ enum FactoringEligibilityStatus {
   INELIGIBLE
 }
 
+enum FactoringLifecycleStatus {
+  IMPORTED
+  ELIGIBLE
+  PENDING_TERMS_ACCEPTANCE
+  FUNDED
+  REPAYMENT_PENDING
+  REPAID
+  DEFAULTED
+}
+
 enum SettlementMethod {
   USDC_WALLET
   ACH
@@ -69,6 +79,7 @@ enum SettlementMethod {
 enum FactoringTransactionStatus {
   PENDING
   FUNDED
+  DEFAULTED
   REPAID
   CANCELLED
 }
@@ -87,13 +98,62 @@ enum FactoringEventType {
   OFFER_GENERATED
   TERMS_ACCEPTED
   TRANSACTION_CREATED
+  FUNDS_RESERVED
+  CAPITAL_DISBURSED
   ARENA_SETTLEMENT_PREPARED
   STATUS_CHANGED
+  REPAYMENT_PENDING
   REPAYMENT_RECORDED
+  POOL_DISTRIBUTION_BOOKED
+}
+
+enum RiskTier {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum PoolTransactionType {
+  FUNDING_DISBURSED
+  REPAYMENT_RECEIVED
+  YIELD_BOOKED
+  PROTOCOL_FEE_BOOKED
+}
+
+enum LedgerOwnerType {
+  SELLER
+  POOL
+  OPERATOR
+}
+
+enum LedgerDirection {
+  DEBIT
+  CREDIT
+}
+
+model Organization {
+  id                    String                  @id @default(cuid())
+  name                  String
+  slug                  String                  @unique
+  createdAt             DateTime                @default(now())
+  updatedAt             DateTime                @updatedAt
+  users                 User[]
+  connections           IntegrationConnection[]
+  invoices              ImportedInvoice[]
+  factoringOffers       FactoringOffer[]
+  factoringTransactions FactoringTransaction[]
+  auditEvents           FactoringEventLog[]
+  syncRuns              SyncRun[]
+  documentLinks         DocumentInvoiceLink[]
+  poolTransactions      PoolTransaction[]
+  walletLedgers         WalletLedger[]
+
+  @@map("organizations")
 }
 
 model User {
   id             String                  @id @default(cuid())
+  organizationId String?
   email          String                  @unique
   name           String?
   passwordHash   String
@@ -110,6 +170,10 @@ model User {
   factoringOffers FactoringOffer[]
   factoringTransactions FactoringTransaction[]
   factoringEvents FactoringEventLog[]
+  organization   Organization?           @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@map("users")
 }
 
 model AppSession {
@@ -124,6 +188,7 @@ model AppSession {
 
   @@index([userId])
   @@index([expiresAt])
+  @@map("app_sessions")
 }
 
 model OAuthState {
@@ -140,6 +205,7 @@ model OAuthState {
 
   @@index([userId, provider])
   @@index([expiresAt])
+  @@map("oauth_states")
 }
 
 model AuthLoginState {
@@ -152,6 +218,7 @@ model AuthLoginState {
   createdAt  DateTime             @default(now())
 
   @@index([provider, expiresAt])
+  @@map("auth_login_states")
 }
 
 model UserIdentity {
@@ -169,11 +236,13 @@ model UserIdentity {
 
   @@unique([provider, providerUserId])
   @@index([userId, provider])
+  @@map("user_identities")
 }
 
 model IntegrationConnection {
   id                  String                  @id @default(cuid())
   userId              String
+  organizationId      String?
   provider            Provider
   status              IntegrationStatus       @default(DISCONNECTED)
   displayName         String?
@@ -186,6 +255,7 @@ model IntegrationConnection {
   createdAt           DateTime                @default(now())
   updatedAt           DateTime                @updatedAt
   user                User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization        Organization?           @relation(fields: [organizationId], references: [id], onDelete: SetNull)
   token               OAuthToken?
   quickBooksCompany   QuickBooksCompany?
   importedInvoices    ImportedInvoice[]
@@ -195,6 +265,8 @@ model IntegrationConnection {
 
   @@unique([userId, provider])
   @@index([provider, status])
+  @@index([organizationId, provider, status])
+  @@map("accounting_connections")
 }
 
 model OAuthToken {
@@ -211,6 +283,7 @@ model OAuthToken {
   connection             IntegrationConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
 
   @@index([accessTokenExpiresAt])
+  @@map("oauth_tokens")
 }
 
 model QuickBooksCompany {
@@ -225,11 +298,14 @@ model QuickBooksCompany {
   updatedAt   DateTime @updatedAt
   connection  IntegrationConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
   invoices    ImportedInvoice[]
+
+  @@map("quickbooks_companies")
 }
 
 model ImportedInvoice {
   id                 String        @id @default(cuid())
   userId             String
+  organizationId     String?
   connectionId       String
   quickBooksCompanyId String?
   provider           Provider
@@ -246,11 +322,15 @@ model ImportedInvoice {
   counterpartyName   String
   counterpartyEmail  String?
   normalizedStatus   InvoiceStatus
+  factoringLifecycleStatus FactoringLifecycleStatus @default(IMPORTED)
+  fundedAt           DateTime?
+  repaidAt           DateTime?
   rawPayload         Json
   lastSyncedAt       DateTime
   createdAt          DateTime      @default(now())
   updatedAt          DateTime      @updatedAt
   user               User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization       Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
   connection         IntegrationConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
   quickBooksCompany  QuickBooksCompany? @relation(fields: [quickBooksCompanyId], references: [id], onDelete: SetNull)
   documentLinks      DocumentInvoiceLink[]
@@ -260,8 +340,10 @@ model ImportedInvoice {
 
   @@unique([connectionId, providerInvoiceId])
   @@index([userId, normalizedStatus])
+  @@index([userId, factoringLifecycleStatus])
   @@index([connectionId, lastSyncedAt])
   @@index([counterpartyName])
+  @@map("invoices")
 }
 
 model WebhookEventLog {
@@ -283,11 +365,13 @@ model WebhookEventLog {
 
   @@unique([provider, payloadHash])
   @@index([provider, createdAt])
+  @@map("webhook_event_logs")
 }
 
 model SyncRun {
   id             String        @id @default(cuid())
   userId         String?
+  organizationId String?
   connectionId   String?
   provider       Provider
   trigger        SyncTrigger
@@ -303,9 +387,11 @@ model SyncRun {
   startedAt      DateTime      @default(now())
   completedAt    DateTime?
   user           User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
   connection     IntegrationConnection? @relation(fields: [connectionId], references: [id], onDelete: SetNull)
 
   @@index([provider, startedAt])
+  @@map("sync_runs")
 }
 
 model MetricCounter {
@@ -317,6 +403,7 @@ model MetricCounter {
   updatedAt  DateTime @updatedAt
 
   @@unique([name, scope])
+  @@map("metric_counters")
 }
 
 model RateLimitBucket {
@@ -330,11 +417,13 @@ model RateLimitBucket {
 
   @@unique([keyHash, bucketStart])
   @@index([expiresAt])
+  @@map("rate_limit_buckets")
 }
 
 model DocumentInvoiceLink {
   id                    String        @id @default(cuid())
   userId                String
+  organizationId        String?
   importedInvoiceId     String
   pandadocConnectionId  String?
   pandadocDocumentId    String
@@ -349,11 +438,13 @@ model DocumentInvoiceLink {
   createdAt             DateTime      @default(now())
   updatedAt             DateTime      @updatedAt
   user                  User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization          Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
   importedInvoice       ImportedInvoice @relation(fields: [importedInvoiceId], references: [id], onDelete: Cascade)
   pandadocConnection    IntegrationConnection? @relation("PandaDocDocumentLinks", fields: [pandadocConnectionId], references: [id], onDelete: SetNull)
 
   @@unique([userId, pandadocDocumentId])
   @@unique([userId, importedInvoiceId])
+  @@map("document_invoice_links")
 }
 
 model CapitalSource {
@@ -366,19 +457,30 @@ model CapitalSource {
   currency          String
   operatorWallet    String?
   liquiditySnapshot Decimal?         @db.Decimal(18, 2)
+  totalLiquidity    Decimal          @default(0) @db.Decimal(18, 2)
+  availableLiquidity Decimal         @default(0) @db.Decimal(18, 2)
+  deployedLiquidity Decimal          @default(0) @db.Decimal(18, 2)
+  accruedYield      Decimal          @default(0) @db.Decimal(18, 2)
+  protocolFeesCollected Decimal      @default(0) @db.Decimal(18, 2)
+  targetAdvanceRateBps Int           @default(9000)
+  operatorFeeBps    Int              @default(50)
   isActive          Boolean          @default(true)
   metadata          Json?
   createdAt         DateTime         @default(now())
   updatedAt         DateTime         @updatedAt
   offers            FactoringOffer[]
   transactions      FactoringTransaction[]
+  poolTransactions  PoolTransaction[]
+  walletLedgers     WalletLedger[]
 
   @@index([marketplaceNode, type, isActive])
+  @@map("liquidity_pools")
 }
 
 model FactoringOffer {
   id                   String                     @id @default(cuid())
   userId               String
+  organizationId       String?
   importedInvoiceId    String                     @unique
   capitalSourceId      String
   marketplaceNode      MarketplaceNode
@@ -386,9 +488,16 @@ model FactoringOffer {
   eligibilityStatus    FactoringEligibilityStatus
   ineligibilityReason  String?
   grossAmount          Decimal                    @db.Decimal(18, 2)
+  advanceRateBps       Int
+  advanceAmount        Decimal                    @db.Decimal(18, 2)
   discountRateBps      Int
   discountAmount       Decimal                    @db.Decimal(18, 2)
+  operatorFeeBps       Int
+  operatorFeeAmount    Decimal                    @db.Decimal(18, 2)
   netProceeds          Decimal                    @db.Decimal(18, 2)
+  expectedRepaymentAmount Decimal                 @db.Decimal(18, 2)
+  expectedMaturityDate DateTime?
+  riskTier             RiskTier
   settlementCurrency   String
   settlementTimeSummary String
   termsSnapshot        Json
@@ -396,17 +505,20 @@ model FactoringOffer {
   createdAt            DateTime                   @default(now())
   updatedAt            DateTime                   @updatedAt
   user                 User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization         Organization?              @relation(fields: [organizationId], references: [id], onDelete: SetNull)
   importedInvoice      ImportedInvoice            @relation(fields: [importedInvoiceId], references: [id], onDelete: Cascade)
   capitalSource        CapitalSource              @relation(fields: [capitalSourceId], references: [id], onDelete: Restrict)
   transactions         FactoringTransaction[]
 
   @@index([userId, eligibilityStatus])
+  @@map("factoring_offers")
 }
 
 model FactoringTransaction {
   id                         String                     @id @default(cuid())
   transactionReference       String                     @unique
   userId                     String
+  organizationId             String?
   importedInvoiceId          String
   factoringOfferId           String?
   capitalSourceId            String
@@ -419,11 +531,21 @@ model FactoringTransaction {
   invoiceCurrency            String?
   settlementCurrency         String
   grossAmount                Decimal                    @db.Decimal(18, 2)
+  advanceRateBps             Int
+  advanceAmount              Decimal                    @db.Decimal(18, 2)
+  principalAmount            Decimal                    @db.Decimal(18, 2)
   discountRateBps            Int
   discountAmount             Decimal                    @db.Decimal(18, 2)
+  operatorFeeBps             Int
+  operatorFeeAmount          Decimal                    @db.Decimal(18, 2)
+  poolYieldAmount            Decimal                    @db.Decimal(18, 2)
   netProceeds                Decimal                    @db.Decimal(18, 2)
+  expectedRepaymentAmount    Decimal                    @db.Decimal(18, 2)
+  maturityDate               DateTime?
+  riskTier                   RiskTier
   settlementTimeLabel        String
   termsAcceptedAt            DateTime
+  reservedAt                 DateTime?
   fundedAt                   DateTime?
   repaidAt                   DateTime?
   operatorWallet             String?
@@ -433,18 +555,23 @@ model FactoringTransaction {
   createdAt                  DateTime                   @default(now())
   updatedAt                  DateTime                   @updatedAt
   user                       User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization               Organization?              @relation(fields: [organizationId], references: [id], onDelete: SetNull)
   importedInvoice            ImportedInvoice            @relation(fields: [importedInvoiceId], references: [id], onDelete: Cascade)
   factoringOffer             FactoringOffer?            @relation(fields: [factoringOfferId], references: [id], onDelete: SetNull)
   capitalSource              CapitalSource              @relation(fields: [capitalSourceId], references: [id], onDelete: Restrict)
   events                     FactoringEventLog[]
+  poolTransactions           PoolTransaction[]
+  walletLedgers              WalletLedger[]
 
   @@index([userId, status, createdAt])
   @@index([importedInvoiceId, status])
+  @@map("factoring_positions")
 }
 
 model FactoringEventLog {
   id                    String                     @id @default(cuid())
   userId                String
+  organizationId        String?
   importedInvoiceId     String
   factoringTransactionId String?
   eventType             FactoringEventType
@@ -454,9 +581,56 @@ model FactoringEventLog {
   metadata              Json?
   createdAt             DateTime                   @default(now())
   user                  User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization          Organization?              @relation(fields: [organizationId], references: [id], onDelete: SetNull)
   importedInvoice       ImportedInvoice            @relation(fields: [importedInvoiceId], references: [id], onDelete: Cascade)
   factoringTransaction  FactoringTransaction?      @relation(fields: [factoringTransactionId], references: [id], onDelete: Cascade)
 
   @@index([userId, createdAt])
   @@index([factoringTransactionId, createdAt])
+  @@map("audit_events")
+}
+
+model PoolTransaction {
+  id                    String                     @id @default(cuid())
+  organizationId        String?
+  capitalSourceId       String
+  factoringTransactionId String?
+  transactionType       PoolTransactionType
+  currency              String
+  amount                Decimal                    @db.Decimal(18, 2)
+  principalAmount       Decimal                    @db.Decimal(18, 2)
+  yieldAmount           Decimal                    @db.Decimal(18, 2)
+  feeAmount             Decimal                    @db.Decimal(18, 2)
+  metadata              Json?
+  createdAt             DateTime                   @default(now())
+  organization          Organization?              @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  capitalSource         CapitalSource              @relation(fields: [capitalSourceId], references: [id], onDelete: Cascade)
+  factoringTransaction  FactoringTransaction?      @relation(fields: [factoringTransactionId], references: [id], onDelete: SetNull)
+
+  @@index([capitalSourceId, transactionType, createdAt])
+  @@map("pool_transactions")
+}
+
+model WalletLedger {
+  id                    String                     @id @default(cuid())
+  organizationId        String?
+  capitalSourceId       String?
+  factoringTransactionId String?
+  ownerType             LedgerOwnerType
+  ownerId               String
+  entryType             String
+  direction             LedgerDirection
+  currency              String
+  amount                Decimal                    @db.Decimal(18, 2)
+  balanceAfter          Decimal                    @db.Decimal(18, 2)
+  description           String
+  metadata              Json?
+  createdAt             DateTime                   @default(now())
+  organization          Organization?              @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  capitalSource         CapitalSource?             @relation(fields: [capitalSourceId], references: [id], onDelete: SetNull)
+  factoringTransaction  FactoringTransaction?      @relation(fields: [factoringTransactionId], references: [id], onDelete: SetNull)
+
+  @@index([ownerType, ownerId, createdAt])
+  @@index([capitalSourceId, createdAt])
+  @@map("wallet_ledgers")
 }

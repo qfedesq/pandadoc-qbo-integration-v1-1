@@ -3,11 +3,16 @@ import {
   CapitalSourceType,
   FactoringEligibilityStatus,
   FactoringEventType,
+  FactoringLifecycleStatus,
   FactoringTransactionStatus,
   InvoiceStatus,
+  LedgerDirection,
+  LedgerOwnerType,
   MarketplaceNode,
   OnChainExecutionStatus,
+  PoolTransactionType,
   Provider,
+  RiskTier,
   SettlementMethod,
   PrismaClient,
 } from "@prisma/client";
@@ -18,7 +23,22 @@ import { encryptSecret } from "../lib/security/encryption";
 
 const prisma = new PrismaClient();
 
-async function seedAdminUser() {
+async function seedOrganization() {
+  return prisma.organization.upsert({
+    where: {
+      slug: "protofire-demo-saas",
+    },
+    update: {
+      name: "Protofire Demo SaaS",
+    },
+    create: {
+      slug: "protofire-demo-saas",
+      name: "Protofire Demo SaaS",
+    },
+  });
+}
+
+async function seedAdminUser(organizationId: string) {
   const passwordHash = await hashPassword(env.DEFAULT_ADMIN_PASSWORD);
 
   return prisma.user.upsert({
@@ -28,16 +48,18 @@ async function seedAdminUser() {
     update: {
       passwordHash,
       name: "Admin User",
+      organizationId,
     },
     create: {
       email: env.DEFAULT_ADMIN_EMAIL.toLowerCase(),
       name: "Admin User",
       passwordHash,
+      organizationId,
     },
   });
 }
 
-async function seedDemoData(userId: string) {
+async function seedDemoData(userId: string, organizationId: string) {
   const pandaDocConnection = await prisma.integrationConnection.upsert({
     where: {
       userId_provider: {
@@ -46,6 +68,7 @@ async function seedDemoData(userId: string) {
       },
     },
     update: {
+      organizationId,
       status: "CONNECTED",
       displayName: "Morgan Panda",
       externalAccountId: "pd_user_demo",
@@ -59,6 +82,7 @@ async function seedDemoData(userId: string) {
     },
     create: {
       userId,
+      organizationId,
       provider: Provider.PANDADOC,
       status: "CONNECTED",
       displayName: "Morgan Panda",
@@ -104,6 +128,7 @@ async function seedDemoData(userId: string) {
       },
     },
     update: {
+      organizationId,
       status: "CONNECTED",
       displayName: "Demo Manufacturing LLC",
       externalAccountId: "9130357992222222",
@@ -112,10 +137,12 @@ async function seedDemoData(userId: string) {
       lastSyncAt: new Date("2026-03-01T12:00:00.000Z"),
       metadata: {
         realmId: "9130357992222222",
+        mode: "mock",
       },
     },
     create: {
       userId,
+      organizationId,
       provider: Provider.QUICKBOOKS,
       status: "CONNECTED",
       displayName: "Demo Manufacturing LLC",
@@ -125,6 +152,7 @@ async function seedDemoData(userId: string) {
       lastSyncAt: new Date("2026-03-01T12:00:00.000Z"),
       metadata: {
         realmId: "9130357992222222",
+        mode: "mock",
       },
     },
   });
@@ -205,7 +233,8 @@ async function seedDemoData(userId: string) {
       counterpartyName: "Acme Holdings",
       counterpartyEmail: "billing@acme.example",
       normalizedStatus: InvoiceStatus.OPEN,
-      lastSyncedAt: new Date("2026-03-01T12:00:00.000Z"),
+      factoringLifecycleStatus: FactoringLifecycleStatus.ELIGIBLE,
+      lastSyncedAt: new Date("2026-03-06T12:00:00.000Z"),
     },
     {
       providerInvoiceId: "9002",
@@ -217,7 +246,8 @@ async function seedDemoData(userId: string) {
       counterpartyName: "Northwind Traders",
       counterpartyEmail: "ap@northwind.example",
       normalizedStatus: InvoiceStatus.OVERDUE,
-      lastSyncedAt: new Date("2026-03-01T12:00:00.000Z"),
+      factoringLifecycleStatus: FactoringLifecycleStatus.IMPORTED,
+      lastSyncedAt: new Date("2026-03-06T12:00:00.000Z"),
     },
     {
       providerInvoiceId: "9003",
@@ -229,7 +259,24 @@ async function seedDemoData(userId: string) {
       counterpartyName: "Globex Corporation",
       counterpartyEmail: "finance@globex.example",
       normalizedStatus: InvoiceStatus.PARTIALLY_PAID,
-      lastSyncedAt: new Date("2026-03-01T12:00:00.000Z"),
+      factoringLifecycleStatus: FactoringLifecycleStatus.FUNDED,
+      fundedAt: new Date("2026-03-01T12:20:00.000Z"),
+      lastSyncedAt: new Date("2026-03-06T12:00:00.000Z"),
+    },
+    {
+      providerInvoiceId: "9004",
+      docNumber: "INV-9004",
+      totalAmount: "1800.00",
+      balanceAmount: "0.00",
+      dueDate: new Date("2026-02-28T00:00:00.000Z"),
+      issueDate: new Date("2026-02-05T00:00:00.000Z"),
+      counterpartyName: "Pinnacle Analytics",
+      counterpartyEmail: "finance@pinnacle.example",
+      normalizedStatus: InvoiceStatus.PAID,
+      factoringLifecycleStatus: FactoringLifecycleStatus.REPAID,
+      fundedAt: new Date("2026-02-18T10:30:00.000Z"),
+      repaidAt: new Date("2026-02-28T16:10:00.000Z"),
+      lastSyncedAt: new Date("2026-03-06T12:00:00.000Z"),
     },
   ];
 
@@ -242,6 +289,7 @@ async function seedDemoData(userId: string) {
         },
       },
       update: {
+        organizationId,
         quickBooksCompanyId: company.id,
         provider: Provider.QUICKBOOKS,
         ...invoice,
@@ -253,6 +301,7 @@ async function seedDemoData(userId: string) {
       },
       create: {
         userId,
+        organizationId,
         connectionId: quickBooksConnection.id,
         quickBooksCompanyId: company.id,
         provider: Provider.QUICKBOOKS,
@@ -266,14 +315,40 @@ async function seedDemoData(userId: string) {
     });
   }
 
-  const seededInvoice = await prisma.importedInvoice.findUniqueOrThrow({
-    where: {
-      connectionId_providerInvoiceId: {
-        connectionId: quickBooksConnection.id,
-        providerInvoiceId: "9003",
+  const [invoice9001, invoice9002, invoice9003, invoice9004] = await Promise.all([
+    prisma.importedInvoice.findUniqueOrThrow({
+      where: {
+        connectionId_providerInvoiceId: {
+          connectionId: quickBooksConnection.id,
+          providerInvoiceId: "9001",
+        },
       },
-    },
-  });
+    }),
+    prisma.importedInvoice.findUniqueOrThrow({
+      where: {
+        connectionId_providerInvoiceId: {
+          connectionId: quickBooksConnection.id,
+          providerInvoiceId: "9002",
+        },
+      },
+    }),
+    prisma.importedInvoice.findUniqueOrThrow({
+      where: {
+        connectionId_providerInvoiceId: {
+          connectionId: quickBooksConnection.id,
+          providerInvoiceId: "9003",
+        },
+      },
+    }),
+    prisma.importedInvoice.findUniqueOrThrow({
+      where: {
+        connectionId_providerInvoiceId: {
+          connectionId: quickBooksConnection.id,
+          providerInvoiceId: "9004",
+        },
+      },
+    }),
+  ]);
 
   const capitalSource = await prisma.capitalSource.upsert({
     where: {
@@ -287,6 +362,13 @@ async function seedDemoData(userId: string) {
       currency: "USDC",
       operatorWallet: "0xProtofireOperatorWalletDemo",
       liquiditySnapshot: "500000.00",
+      totalLiquidity: "500064.80",
+      availableLiquidity: "499573.93",
+      deployedLiquidity: "490.87",
+      accruedYield: "64.80",
+      protocolFeesCollected: "8.10",
+      targetAdvanceRateBps: 9000,
+      operatorFeeBps: 50,
       metadata: {
         seeded: true,
       },
@@ -300,68 +382,170 @@ async function seedDemoData(userId: string) {
       currency: "USDC",
       operatorWallet: "0xProtofireOperatorWalletDemo",
       liquiditySnapshot: "500000.00",
+      totalLiquidity: "500064.80",
+      availableLiquidity: "499573.93",
+      deployedLiquidity: "490.87",
+      accruedYield: "64.80",
+      protocolFeesCollected: "8.10",
+      targetAdvanceRateBps: 9000,
+      operatorFeeBps: 50,
       metadata: {
         seeded: true,
       },
     },
   });
 
-  const factoringOffer = await prisma.factoringOffer.upsert({
+  const offers = [
+    {
+      invoice: invoice9001,
+      eligibilityStatus: FactoringEligibilityStatus.ELIGIBLE,
+      ineligibilityReason: null,
+      grossAmount: "1250.00",
+      advanceRateBps: 9000,
+      advanceAmount: "1125.00",
+      discountRateBps: 400,
+      discountAmount: "45.00",
+      operatorFeeBps: 50,
+      operatorFeeAmount: "5.63",
+      netProceeds: "1074.37",
+      expectedRepaymentAmount: "1125.00",
+      expectedMaturityDate: new Date("2026-03-20T00:00:00.000Z"),
+      riskTier: RiskTier.LOW,
+    },
+    {
+      invoice: invoice9002,
+      eligibilityStatus: FactoringEligibilityStatus.INELIGIBLE,
+      ineligibilityReason: "Overdue invoices are not eligible for the Tier 1 managed pool.",
+      grossAmount: "980.00",
+      advanceRateBps: 8500,
+      advanceAmount: "833.00",
+      discountRateBps: 475,
+      discountAmount: "39.57",
+      operatorFeeBps: 50,
+      operatorFeeAmount: "4.17",
+      netProceeds: "789.26",
+      expectedRepaymentAmount: "833.00",
+      expectedMaturityDate: new Date("2026-02-20T00:00:00.000Z"),
+      riskTier: RiskTier.HIGH,
+    },
+    {
+      invoice: invoice9003,
+      eligibilityStatus: FactoringEligibilityStatus.INELIGIBLE,
+      ineligibilityReason: "An active factoring transaction already exists for this invoice.",
+      grossAmount: "600.00",
+      advanceRateBps: 8500,
+      advanceAmount: "510.00",
+      discountRateBps: 325,
+      discountAmount: "16.58",
+      operatorFeeBps: 50,
+      operatorFeeAmount: "2.55",
+      netProceeds: "490.87",
+      expectedRepaymentAmount: "510.00",
+      expectedMaturityDate: new Date("2026-03-15T00:00:00.000Z"),
+      riskTier: RiskTier.HIGH,
+    },
+    {
+      invoice: invoice9004,
+      eligibilityStatus: FactoringEligibilityStatus.INELIGIBLE,
+      ineligibilityReason: "This invoice has already been repaid and closed.",
+      grossAmount: "1800.00",
+      advanceRateBps: 9000,
+      advanceAmount: "1620.00",
+      discountRateBps: 400,
+      discountAmount: "64.80",
+      operatorFeeBps: 50,
+      operatorFeeAmount: "8.10",
+      netProceeds: "1547.10",
+      expectedRepaymentAmount: "1620.00",
+      expectedMaturityDate: new Date("2026-02-28T00:00:00.000Z"),
+      riskTier: RiskTier.MEDIUM,
+    },
+  ];
+
+  for (const offer of offers) {
+    await prisma.factoringOffer.upsert({
+      where: {
+        importedInvoiceId: offer.invoice.id,
+      },
+      update: {
+        organizationId,
+        capitalSourceId: capitalSource.id,
+        marketplaceNode: MarketplaceNode.PANDADOC,
+        accountingSystem: AccountingSystem.QUICKBOOKS,
+        eligibilityStatus: offer.eligibilityStatus,
+        ineligibilityReason: offer.ineligibilityReason,
+        grossAmount: offer.grossAmount,
+        advanceRateBps: offer.advanceRateBps,
+        advanceAmount: offer.advanceAmount,
+        discountRateBps: offer.discountRateBps,
+        discountAmount: offer.discountAmount,
+        operatorFeeBps: offer.operatorFeeBps,
+        operatorFeeAmount: offer.operatorFeeAmount,
+        netProceeds: offer.netProceeds,
+        expectedRepaymentAmount: offer.expectedRepaymentAmount,
+        expectedMaturityDate: offer.expectedMaturityDate,
+        riskTier: offer.riskTier,
+        settlementCurrency: "USDC",
+        settlementTimeSummary:
+          "USDC wallet: Within minutes / ACH: Same business day / Debit card: Within 30 minutes",
+        termsSnapshot: {
+          seeded: true,
+          invoiceId: offer.invoice.providerInvoiceId,
+        },
+        generatedAt: new Date("2026-03-06T12:00:00.000Z"),
+      },
+      create: {
+        userId,
+        organizationId,
+        importedInvoiceId: offer.invoice.id,
+        capitalSourceId: capitalSource.id,
+        marketplaceNode: MarketplaceNode.PANDADOC,
+        accountingSystem: AccountingSystem.QUICKBOOKS,
+        eligibilityStatus: offer.eligibilityStatus,
+        ineligibilityReason: offer.ineligibilityReason,
+        grossAmount: offer.grossAmount,
+        advanceRateBps: offer.advanceRateBps,
+        advanceAmount: offer.advanceAmount,
+        discountRateBps: offer.discountRateBps,
+        discountAmount: offer.discountAmount,
+        operatorFeeBps: offer.operatorFeeBps,
+        operatorFeeAmount: offer.operatorFeeAmount,
+        netProceeds: offer.netProceeds,
+        expectedRepaymentAmount: offer.expectedRepaymentAmount,
+        expectedMaturityDate: offer.expectedMaturityDate,
+        riskTier: offer.riskTier,
+        settlementCurrency: "USDC",
+        settlementTimeSummary:
+          "USDC wallet: Within minutes / ACH: Same business day / Debit card: Within 30 minutes",
+        termsSnapshot: {
+          seeded: true,
+          invoiceId: offer.invoice.providerInvoiceId,
+        },
+        generatedAt: new Date("2026-03-06T12:00:00.000Z"),
+      },
+    });
+  }
+
+  const offer9003 = await prisma.factoringOffer.findUniqueOrThrow({
     where: {
-      importedInvoiceId: seededInvoice.id,
+      importedInvoiceId: invoice9003.id,
     },
-    update: {
-      capitalSourceId: capitalSource.id,
-      marketplaceNode: MarketplaceNode.PANDADOC,
-      accountingSystem: AccountingSystem.QUICKBOOKS,
-      eligibilityStatus: FactoringEligibilityStatus.INELIGIBLE,
-      ineligibilityReason:
-        "An active factoring transaction already exists for this invoice.",
-      grossAmount: "600.00",
-      discountRateBps: 325,
-      discountAmount: "19.50",
-      netProceeds: "580.50",
-      settlementCurrency: "USDC",
-      settlementTimeSummary:
-        "USDC wallet: Within minutes / ACH: Same business day / Debit card: Within 30 minutes",
-      termsSnapshot: {
-        seeded: true,
-        invoiceId: seededInvoice.providerInvoiceId,
-      },
-      generatedAt: new Date("2026-03-01T12:00:00.000Z"),
-    },
-    create: {
-      userId,
-      importedInvoiceId: seededInvoice.id,
-      capitalSourceId: capitalSource.id,
-      marketplaceNode: MarketplaceNode.PANDADOC,
-      accountingSystem: AccountingSystem.QUICKBOOKS,
-      eligibilityStatus: FactoringEligibilityStatus.INELIGIBLE,
-      ineligibilityReason:
-        "An active factoring transaction already exists for this invoice.",
-      grossAmount: "600.00",
-      discountRateBps: 325,
-      discountAmount: "19.50",
-      netProceeds: "580.50",
-      settlementCurrency: "USDC",
-      settlementTimeSummary:
-        "USDC wallet: Within minutes / ACH: Same business day / Debit card: Within 30 minutes",
-      termsSnapshot: {
-        seeded: true,
-        invoiceId: seededInvoice.providerInvoiceId,
-      },
-      generatedAt: new Date("2026-03-01T12:00:00.000Z"),
+  });
+  const offer9004 = await prisma.factoringOffer.findUniqueOrThrow({
+    where: {
+      importedInvoiceId: invoice9004.id,
     },
   });
 
-  const seededTransaction = await prisma.factoringTransaction.upsert({
+  const fundedTransaction = await prisma.factoringTransaction.upsert({
     where: {
       transactionReference: "FACT-DEMO-9003",
     },
     update: {
       userId,
-      importedInvoiceId: seededInvoice.id,
-      factoringOfferId: factoringOffer.id,
+      organizationId,
+      importedInvoiceId: invoice9003.id,
+      factoringOfferId: offer9003.id,
       capitalSourceId: capitalSource.id,
       marketplaceNode: MarketplaceNode.PANDADOC,
       accountingSystem: AccountingSystem.QUICKBOOKS,
@@ -372,16 +556,25 @@ async function seedDemoData(userId: string) {
       invoiceCurrency: "USD",
       settlementCurrency: "USDC",
       grossAmount: "600.00",
+      advanceRateBps: 8500,
+      advanceAmount: "510.00",
+      principalAmount: "490.87",
       discountRateBps: 325,
-      discountAmount: "19.50",
-      netProceeds: "580.50",
+      discountAmount: "16.58",
+      operatorFeeBps: 50,
+      operatorFeeAmount: "2.55",
+      poolYieldAmount: "16.58",
+      netProceeds: "490.87",
+      expectedRepaymentAmount: "510.00",
+      maturityDate: new Date("2026-03-15T00:00:00.000Z"),
+      riskTier: RiskTier.HIGH,
       settlementTimeLabel: "Within minutes",
       termsAcceptedAt: new Date("2026-03-01T12:15:00.000Z"),
+      reservedAt: new Date("2026-03-01T12:16:00.000Z"),
       fundedAt: new Date("2026-03-01T12:20:00.000Z"),
-      repaidAt: null,
       operatorWallet: "0xProtofireOperatorWalletDemo",
       arenaSettlementReference: "arena_sim_seeded_9003",
-      onChainExecutionStatus: OnChainExecutionStatus.SETTLED,
+      onChainExecutionStatus: OnChainExecutionStatus.SIMULATED,
       metadata: {
         seeded: true,
       },
@@ -389,8 +582,9 @@ async function seedDemoData(userId: string) {
     create: {
       transactionReference: "FACT-DEMO-9003",
       userId,
-      importedInvoiceId: seededInvoice.id,
-      factoringOfferId: factoringOffer.id,
+      organizationId,
+      importedInvoiceId: invoice9003.id,
+      factoringOfferId: offer9003.id,
       capitalSourceId: capitalSource.id,
       marketplaceNode: MarketplaceNode.PANDADOC,
       accountingSystem: AccountingSystem.QUICKBOOKS,
@@ -401,33 +595,323 @@ async function seedDemoData(userId: string) {
       invoiceCurrency: "USD",
       settlementCurrency: "USDC",
       grossAmount: "600.00",
+      advanceRateBps: 8500,
+      advanceAmount: "510.00",
+      principalAmount: "490.87",
       discountRateBps: 325,
-      discountAmount: "19.50",
-      netProceeds: "580.50",
+      discountAmount: "16.58",
+      operatorFeeBps: 50,
+      operatorFeeAmount: "2.55",
+      poolYieldAmount: "16.58",
+      netProceeds: "490.87",
+      expectedRepaymentAmount: "510.00",
+      maturityDate: new Date("2026-03-15T00:00:00.000Z"),
+      riskTier: RiskTier.HIGH,
       settlementTimeLabel: "Within minutes",
       termsAcceptedAt: new Date("2026-03-01T12:15:00.000Z"),
+      reservedAt: new Date("2026-03-01T12:16:00.000Z"),
       fundedAt: new Date("2026-03-01T12:20:00.000Z"),
       operatorWallet: "0xProtofireOperatorWalletDemo",
       arenaSettlementReference: "arena_sim_seeded_9003",
+      onChainExecutionStatus: OnChainExecutionStatus.SIMULATED,
+      metadata: {
+        seeded: true,
+      },
+    },
+  });
+
+  const repaidTransaction = await prisma.factoringTransaction.upsert({
+    where: {
+      transactionReference: "FACT-DEMO-9004",
+    },
+    update: {
+      userId,
+      organizationId,
+      importedInvoiceId: invoice9004.id,
+      factoringOfferId: offer9004.id,
+      capitalSourceId: capitalSource.id,
+      marketplaceNode: MarketplaceNode.PANDADOC,
+      accountingSystem: AccountingSystem.QUICKBOOKS,
+      status: FactoringTransactionStatus.REPAID,
+      settlementMethod: SettlementMethod.ACH,
+      settlementDestinationMasked: "ACH ••4821",
+      sellerWalletAddress: null,
+      invoiceCurrency: "USD",
+      settlementCurrency: "USDC",
+      grossAmount: "1800.00",
+      advanceRateBps: 9000,
+      advanceAmount: "1620.00",
+      principalAmount: "1547.10",
+      discountRateBps: 400,
+      discountAmount: "64.80",
+      operatorFeeBps: 50,
+      operatorFeeAmount: "8.10",
+      poolYieldAmount: "64.80",
+      netProceeds: "1547.10",
+      expectedRepaymentAmount: "1620.00",
+      maturityDate: new Date("2026-02-28T00:00:00.000Z"),
+      riskTier: RiskTier.MEDIUM,
+      settlementTimeLabel: "Same business day",
+      termsAcceptedAt: new Date("2026-02-18T10:00:00.000Z"),
+      reservedAt: new Date("2026-02-18T10:05:00.000Z"),
+      fundedAt: new Date("2026-02-18T10:30:00.000Z"),
+      repaidAt: new Date("2026-02-28T16:10:00.000Z"),
+      operatorWallet: "0xProtofireOperatorWalletDemo",
+      arenaSettlementReference: "arena_sim_seeded_9004",
       onChainExecutionStatus: OnChainExecutionStatus.SETTLED,
       metadata: {
         seeded: true,
       },
     },
+    create: {
+      transactionReference: "FACT-DEMO-9004",
+      userId,
+      organizationId,
+      importedInvoiceId: invoice9004.id,
+      factoringOfferId: offer9004.id,
+      capitalSourceId: capitalSource.id,
+      marketplaceNode: MarketplaceNode.PANDADOC,
+      accountingSystem: AccountingSystem.QUICKBOOKS,
+      status: FactoringTransactionStatus.REPAID,
+      settlementMethod: SettlementMethod.ACH,
+      settlementDestinationMasked: "ACH ••4821",
+      sellerWalletAddress: null,
+      invoiceCurrency: "USD",
+      settlementCurrency: "USDC",
+      grossAmount: "1800.00",
+      advanceRateBps: 9000,
+      advanceAmount: "1620.00",
+      principalAmount: "1547.10",
+      discountRateBps: 400,
+      discountAmount: "64.80",
+      operatorFeeBps: 50,
+      operatorFeeAmount: "8.10",
+      poolYieldAmount: "64.80",
+      netProceeds: "1547.10",
+      expectedRepaymentAmount: "1620.00",
+      maturityDate: new Date("2026-02-28T00:00:00.000Z"),
+      riskTier: RiskTier.MEDIUM,
+      settlementTimeLabel: "Same business day",
+      termsAcceptedAt: new Date("2026-02-18T10:00:00.000Z"),
+      reservedAt: new Date("2026-02-18T10:05:00.000Z"),
+      fundedAt: new Date("2026-02-18T10:30:00.000Z"),
+      repaidAt: new Date("2026-02-28T16:10:00.000Z"),
+      operatorWallet: "0xProtofireOperatorWalletDemo",
+      arenaSettlementReference: "arena_sim_seeded_9004",
+      onChainExecutionStatus: OnChainExecutionStatus.SETTLED,
+      metadata: {
+        seeded: true,
+      },
+    },
+  });
+
+  await prisma.poolTransaction.deleteMany({
+    where: {
+      factoringTransactionId: {
+        in: [fundedTransaction.id, repaidTransaction.id],
+      },
+    },
+  });
+
+  await prisma.poolTransaction.createMany({
+    data: [
+      {
+        organizationId,
+        capitalSourceId: capitalSource.id,
+        factoringTransactionId: fundedTransaction.id,
+        transactionType: PoolTransactionType.FUNDING_DISBURSED,
+        currency: "USDC",
+        amount: "490.87",
+        principalAmount: "490.87",
+        yieldAmount: "0.00",
+        feeAmount: "0.00",
+        metadata: {
+          seeded: true,
+        },
+      },
+      {
+        organizationId,
+        capitalSourceId: capitalSource.id,
+        factoringTransactionId: repaidTransaction.id,
+        transactionType: PoolTransactionType.FUNDING_DISBURSED,
+        currency: "USDC",
+        amount: "1547.10",
+        principalAmount: "1547.10",
+        yieldAmount: "0.00",
+        feeAmount: "0.00",
+        metadata: {
+          seeded: true,
+        },
+      },
+      {
+        organizationId,
+        capitalSourceId: capitalSource.id,
+        factoringTransactionId: repaidTransaction.id,
+        transactionType: PoolTransactionType.REPAYMENT_RECEIVED,
+        currency: "USDC",
+        amount: "1620.00",
+        principalAmount: "1547.10",
+        yieldAmount: "64.80",
+        feeAmount: "8.10",
+        metadata: {
+          seeded: true,
+        },
+      },
+      {
+        organizationId,
+        capitalSourceId: capitalSource.id,
+        factoringTransactionId: repaidTransaction.id,
+        transactionType: PoolTransactionType.YIELD_BOOKED,
+        currency: "USDC",
+        amount: "64.80",
+        principalAmount: "0.00",
+        yieldAmount: "64.80",
+        feeAmount: "0.00",
+        metadata: {
+          seeded: true,
+        },
+      },
+      {
+        organizationId,
+        capitalSourceId: capitalSource.id,
+        factoringTransactionId: repaidTransaction.id,
+        transactionType: PoolTransactionType.PROTOCOL_FEE_BOOKED,
+        currency: "USDC",
+        amount: "8.10",
+        principalAmount: "0.00",
+        yieldAmount: "0.00",
+        feeAmount: "8.10",
+        metadata: {
+          seeded: true,
+        },
+      },
+    ],
+  });
+
+  await prisma.walletLedger.deleteMany({
+    where: {
+      factoringTransactionId: {
+        in: [fundedTransaction.id, repaidTransaction.id],
+      },
+    },
+  });
+
+  await prisma.walletLedger.createMany({
+    data: [
+      {
+        organizationId,
+        capitalSourceId: capitalSource.id,
+        factoringTransactionId: repaidTransaction.id,
+        ownerType: LedgerOwnerType.POOL,
+        ownerId: capitalSource.id,
+        entryType: "funding_disbursement",
+        direction: LedgerDirection.DEBIT,
+        currency: "USDC",
+        amount: "1547.10",
+        balanceAfter: "498452.90",
+        description: "Seeded historical funding disbursement.",
+        metadata: {
+          seeded: true,
+        },
+      },
+      {
+        organizationId,
+        capitalSourceId: capitalSource.id,
+        factoringTransactionId: repaidTransaction.id,
+        ownerType: LedgerOwnerType.SELLER,
+        ownerId: userId,
+        entryType: "seller_usdc_disbursement",
+        direction: LedgerDirection.CREDIT,
+        currency: "USDC",
+        amount: "1547.10",
+        balanceAfter: "1547.10",
+        description: "Seeded historical seller disbursement.",
+        metadata: {
+          seeded: true,
+        },
+      },
+      {
+        organizationId,
+        capitalSourceId: capitalSource.id,
+        factoringTransactionId: repaidTransaction.id,
+        ownerType: LedgerOwnerType.POOL,
+        ownerId: capitalSource.id,
+        entryType: "repayment_received",
+        direction: LedgerDirection.CREDIT,
+        currency: "USDC",
+        amount: "1611.90",
+        balanceAfter: "500064.80",
+        description: "Seeded historical repayment return to pool.",
+        metadata: {
+          seeded: true,
+        },
+      },
+      {
+        organizationId,
+        capitalSourceId: capitalSource.id,
+        factoringTransactionId: repaidTransaction.id,
+        ownerType: LedgerOwnerType.OPERATOR,
+        ownerId: "0xProtofireOperatorWalletDemo",
+        entryType: "protocol_fee_credit",
+        direction: LedgerDirection.CREDIT,
+        currency: "USDC",
+        amount: "8.10",
+        balanceAfter: "8.10",
+        description: "Seeded protocol fee credit.",
+        metadata: {
+          seeded: true,
+        },
+      },
+      {
+        organizationId,
+        capitalSourceId: capitalSource.id,
+        factoringTransactionId: fundedTransaction.id,
+        ownerType: LedgerOwnerType.POOL,
+        ownerId: capitalSource.id,
+        entryType: "funding_disbursement",
+        direction: LedgerDirection.DEBIT,
+        currency: "USDC",
+        amount: "490.87",
+        balanceAfter: "499573.93",
+        description: "Seeded active funding disbursement.",
+        metadata: {
+          seeded: true,
+        },
+      },
+      {
+        organizationId,
+        capitalSourceId: capitalSource.id,
+        factoringTransactionId: fundedTransaction.id,
+        ownerType: LedgerOwnerType.SELLER,
+        ownerId: userId,
+        entryType: "seller_usdc_disbursement",
+        direction: LedgerDirection.CREDIT,
+        currency: "USDC",
+        amount: "490.87",
+        balanceAfter: "2037.97",
+        description: "Seeded active seller disbursement.",
+        metadata: {
+          seeded: true,
+        },
+      },
+    ],
   });
 
   await prisma.factoringEventLog.deleteMany({
     where: {
-      factoringTransactionId: seededTransaction.id,
+      factoringTransactionId: {
+        in: [fundedTransaction.id, repaidTransaction.id],
+      },
     },
   });
 
   await prisma.factoringEventLog.createMany({
     data: [
       {
+        organizationId,
         userId,
-        importedInvoiceId: seededInvoice.id,
-        factoringTransactionId: seededTransaction.id,
+        importedInvoiceId: invoice9003.id,
+        factoringTransactionId: fundedTransaction.id,
         eventType: FactoringEventType.OFFER_GENERATED,
         message: "Seeded terms generated for the partial-payment invoice.",
         metadata: {
@@ -435,24 +919,61 @@ async function seedDemoData(userId: string) {
         },
       },
       {
+        organizationId,
         userId,
-        importedInvoiceId: seededInvoice.id,
-        factoringTransactionId: seededTransaction.id,
+        importedInvoiceId: invoice9003.id,
+        factoringTransactionId: fundedTransaction.id,
         eventType: FactoringEventType.TRANSACTION_CREATED,
         statusTo: FactoringTransactionStatus.PENDING,
-        message: "Seeded factoring transaction created.",
+        message: "Seeded factoring position created.",
         metadata: {
           seeded: true,
         },
       },
       {
+        organizationId,
         userId,
-        importedInvoiceId: seededInvoice.id,
-        factoringTransactionId: seededTransaction.id,
-        eventType: FactoringEventType.STATUS_CHANGED,
+        importedInvoiceId: invoice9003.id,
+        factoringTransactionId: fundedTransaction.id,
+        eventType: FactoringEventType.CAPITAL_DISBURSED,
         statusFrom: FactoringTransactionStatus.PENDING,
         statusTo: FactoringTransactionStatus.FUNDED,
-        message: "Seeded transaction advanced to funded.",
+        message: "Seeded capital disbursement confirmed.",
+        metadata: {
+          seeded: true,
+        },
+      },
+      {
+        organizationId,
+        userId,
+        importedInvoiceId: invoice9004.id,
+        factoringTransactionId: repaidTransaction.id,
+        eventType: FactoringEventType.OFFER_GENERATED,
+        message: "Seeded historical terms generated for a closed invoice.",
+        metadata: {
+          seeded: true,
+        },
+      },
+      {
+        organizationId,
+        userId,
+        importedInvoiceId: invoice9004.id,
+        factoringTransactionId: repaidTransaction.id,
+        eventType: FactoringEventType.REPAYMENT_RECORDED,
+        statusFrom: FactoringTransactionStatus.FUNDED,
+        statusTo: FactoringTransactionStatus.REPAID,
+        message: "Seeded repayment recorded and distributed.",
+        metadata: {
+          seeded: true,
+        },
+      },
+      {
+        organizationId,
+        userId,
+        importedInvoiceId: invoice9004.id,
+        factoringTransactionId: repaidTransaction.id,
+        eventType: FactoringEventType.POOL_DISTRIBUTION_BOOKED,
+        message: "Seeded pool principal, yield, and fees booked.",
         metadata: {
           seeded: true,
         },
@@ -462,10 +983,11 @@ async function seedDemoData(userId: string) {
 }
 
 async function main() {
-  const user = await seedAdminUser();
+  const organization = await seedOrganization();
+  const user = await seedAdminUser(organization.id);
 
   if (env.SEED_DEMO_DATA) {
-    await seedDemoData(user.id);
+    await seedDemoData(user.id, organization.id);
   }
 }
 

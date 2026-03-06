@@ -1,572 +1,312 @@
-# pandadoc-qbo-integration v1.3
+# PandaDoc Embedded Invoice Factoring MVP
 
-![Next.js 15](https://img.shields.io/badge/Next.js-15-black)
-![TypeScript Strict](https://img.shields.io/badge/TypeScript-strict-3178C6)
-![Prisma + Postgres](https://img.shields.io/badge/Prisma-Postgres-2D3748)
-![Playwright Smoke Tested](https://img.shields.io/badge/Playwright-smoke--tested-45BA63)
-![Demo Ready](https://img.shields.io/badge/Status-demo--ready-0F766E)
+Repository baseline: `pandadoc-qbo-integration v1.3`
 
-Protofire-branded embedded invoice factoring module for PandaDoc. The app connects PandaDoc and QuickBooks Online, imports outstanding invoices, exposes a factoring dashboard, and simulates Arena StaFi-ready settlement flows with audit trails and transaction tracking.
+Protofire-branded MVP for an embedded invoice factoring product inside a PandaDoc workflow. The app connects a seller workspace to QuickBooks, imports invoices, generates factoring terms, funds eligible invoices from a managed liquidity pool, credits a demo USDC wallet, simulates repayment, and records yield plus operator fees with an auditable ledger.
 
-Current release:
+## What this MVP proves
 
-- `V1.3`
-- repository target name: `pandadoc-qbo-integration-v1-3`
+- Working capital for invoice sellers
+- Yield for capital providers
+- Protocol / operator fee capture for the marketplace owner
+- A credible path from mock demo mode to live QuickBooks OAuth and real settlement rails
 
-## Demo summary
+## Core product flow
 
-This repository demonstrates a complete Protofire-styled PandaDoc + QuickBooks Online integration workflow:
+1. Seller signs in to the workspace
+2. Seller connects QuickBooks
+3. Outstanding invoices are imported and normalized
+4. Eligible invoices show a `Withdraw Capital` action
+5. Seller reviews factoring terms
+6. Seller accepts terms and funding happens immediately
+7. Seller receives demo USDC in the internal wallet ledger
+8. Invoice and factoring position move to funded state
+9. Operator simulates repayment from the admin console
+10. Pool principal returns, pool yield accrues, and protocol fees are credited
 
-- sign in with Google using a verified Gmail account
-- connect PandaDoc with OAuth 2.0
-- connect QuickBooks Online with OAuth 2.0
-- import outstanding QuickBooks invoices into an internal normalized model
-- review them in a dedicated PandaDoc Factoring Dashboard
-- click `Withdraw Capital` on eligible invoices
-- review factoring terms, select a settlement method, and accept the transaction
-- track the factoring lifecycle through `pending`, `funded`, and `repaid`
-- push a selected invoice into PandaDoc as a document created from template
-- keep PandaDoc document state updated through webhooks
+## MVP scope
 
-Primary demo route:
+Implemented:
 
-- `/factoring-dashboard`
+- Next.js 15 + React 19 + TypeScript full-stack app
+- PostgreSQL persistence with Prisma schema and migrations
+- QuickBooks adapter boundary with `mock` and `oauth` modes
+- Seller dashboard, invoice inventory, transaction history
+- Capital pool dashboard
+- Operator console with repayment controls
+- Factoring offer engine with advance rate, pricing, net proceeds, and risk tier
+- Funding and repayment orchestration
+- Seller / pool / operator wallet ledger
+- Pool transaction log
+- Audit event trail
+- Seeded demo data with eligible, funded, and repaid examples
+- Unit and integration coverage for critical business rules
 
-Primary demo actions:
+Out of scope for this MVP:
 
-- sign in with Google or the seeded admin credentials
-- connect both integrations in `/integrations`
-- use the guided setup panel inside `/factoring-dashboard` to authorize PandaDoc and QuickBooks from one place
-- sync invoices from QuickBooks
-- filter and inspect imported invoices
-- withdraw capital from an eligible invoice using `USDC wallet`, `ACH`, or `debit card`
-- review the transaction detail page and audit trail
-- click `Import to PandaDoc` for an invoice with payer email
+- Real KYC / underwriting
+- Collections engine
+- Real on-chain contracts
+- Multi-pool capital markets
+- Secondary markets
 
-## Dashboard preview
+## Architecture
 
-![PandaDoc Factoring Dashboard demo](./public/factoring-dashboard-demo.png)
+### Application layers
 
-## Brand adaptation
+- `app/`
+  Next.js App Router pages and REST endpoints
+- `components/`
+  Seller, pool, and operator UI components
+- `lib/providers/quickbooks/`
+  Real QuickBooks client plus mock adapter data
+- `lib/invoices/`
+  Invoice sync, normalization, and scheduling
+- `lib/factoring/`
+  Eligibility, offer calculation, funding, repayment
+- `lib/db/`
+  Prisma-backed query helpers
+- `prisma/`
+  Schema, SQL migrations, and seed script
 
-The UI now adapts to the provided Protofire brand kit:
+### Business entities
 
-- Protofire wordmark and logomark assets from the shared brand package
-- dark atmospheric surfaces with orange-led gradients inspired by the brandbook
-- productized login and dashboard surfaces instead of a neutral admin shell
-- fixed release badge in the lower-right corner using the current app version
-- in-dashboard setup guidance so non-technical users can authorize both providers without leaving the main workflow
+- `users`
+- `organizations`
+- `accounting_connections`
+- `invoices`
+- `factoring_offers`
+- `factoring_positions`
+- `liquidity_pools`
+- `pool_transactions`
+- `wallet_ledgers`
+- `audit_events`
 
-## Local demo access
+### Demo settlement model
 
-For a clean local demo with seeded data:
+- Seller receives `netProceeds` in demo USDC
+- Pool deploys the seller net proceeds amount
+- Repayment returns principal to the pool
+- Discount amount is booked as pool yield
+- Operator fee is booked to the operator wallet ledger
 
-1. Copy [/.env.example](/Users/qfedesq/Desktop/PandaDoc/.env.example) to `.env`
-2. Start Postgres with `docker compose up -d postgres`
-3. Run `npm install`
-4. Run `npm run db:deploy && npm run db:seed`
-5. Start the app with `npm run dev`
+## Repo tree
 
-Default local demo sign-in from `.env.example`:
+```text
+app/
+  (auth)/
+  (dashboard)/
+    factoring-dashboard/
+    invoices/
+    transactions/
+    capital-pool/
+    operator/
+    integrations/
+  api/
+components/
+lib/
+  auth/
+  db/
+  factoring/
+  invoices/
+  providers/
+prisma/
+  migrations/
+  schema.prisma
+  seed.ts
+mock-data/
+tests/
+```
 
-- Email: `admin@example.com`
-- Password: `ChangeMe123!`
+## Local setup
 
-If Google OAuth is configured with real credentials, the login page also shows `Continue with Google` and automatically provisions a local account for any verified Gmail user.
+### Prerequisites
 
-If Google OAuth is not configured yet, the login page still shows the Google entry point in a disabled state so reviewers can see that the flow exists and what environment variables are still missing.
+- Node.js 20.19+
+- Docker Desktop or another local Postgres runtime
 
-These credentials are for local seeded development only. Production credentials, OAuth secrets, token encryption keys, and sync secrets must be provided through your real environment configuration and must never be committed.
-
-## Demo flow
-
-For a reviewer or stakeholder demo, the shortest path is:
-
-1. Sign in at `/login`
-2. Open `/integrations` and verify PandaDoc and QuickBooks connection status
-3. Open `/factoring-dashboard`
-4. Click `Sync now` to refresh outstanding invoices from QuickBooks
-5. Filter by status, search by invoice id or counterparty, and inspect last sync timestamps
-6. Click `Withdraw Capital` on an eligible invoice, confirm the terms, and land on the transaction detail page
-7. Use the demo operator controls to move the transaction from `pending` to `funded` to `repaid`
-8. Import an invoice to PandaDoc from the dashboard and verify the PandaDoc document status badge updates after webhook delivery
-
-## Architecture overview
-
-- `app/`: Next.js 15 App Router UI and HTTP route handlers.
-- `components/`: dashboard UI, filters, tables, and shadcn-style primitives.
-- `lib/auth/`: internal app authentication with a database-backed session cookie.
-- `lib/providers/google/`: Google OAuth login and Gmail-based access control.
-- `lib/db/`: Prisma client plus persistence helpers for connections, sync runs, and imported invoices.
-- `lib/providers/pandadoc/`: PandaDoc OAuth, current-member lookup, token refresh, and webhook support.
-- `lib/providers/quickbooks/`: QuickBooks OAuth, company lookup, token refresh, and invoice query adapter.
-- `lib/invoices/`: normalization, mapping, and sync orchestration.
-- `lib/factoring/`: factoring eligibility, offer generation, settlement-method options, and transaction orchestration.
-- `lib/arena-stafi/`: Arena StaFi-ready settlement gateway boundary with a managed-pool mock for Tier 1.
-- `lib/jobs/`: queue abstraction. The default implementation is inline, but the interface is ready for a real queue.
-- `lib/webhooks/`: PandaDoc webhook validation and persistence.
-- `lib/security/`: request-origin validation, encrypted secret handling, hashing, and database-backed rate limiting.
-- `lib/app-version.ts`: single source for the displayed release version and versioned repository name.
-- `prisma/`: schema, SQL migration, and seed script.
-- `.github/workflows/`: release automation, including the auto minor-version bump on `main`.
-- `tests/`: unit, integration, and Playwright smoke coverage.
-- `mock-data/`: sample provider payloads for local development and debugging.
-
-## What the app does today
-
-- Authenticates a local admin user to protect the dashboard and server routes.
-- Supports Google sign-in for verified Gmail accounts and provisions local users automatically.
-- Connects PandaDoc with OAuth 2.0 and persists tokens server-side.
-- Connects QuickBooks Online with OAuth 2.0, persists tokens, and stores the QuickBooks realm/company.
-- Refreshes provider access tokens before API calls when needed.
-- Imports QuickBooks invoices into a normalized internal model.
-- Exposes a dedicated PandaDoc Factoring Dashboard at `/factoring-dashboard`.
-- Marks invoices as eligible or ineligible for the Tier 1 managed pool.
-- Generates factoring terms snapshots with discount rate, net proceeds, and settlement timing.
-- Supports `Withdraw Capital` confirmation with settlement method selection for `USDC wallet`, `ACH`, and `debit card`.
-- Creates factoring transactions with audit logs and tracks them through `PENDING`, `FUNDED`, and `REPAID`.
-- Simulates Arena StaFi settlement preparation through a dedicated service boundary and a managed liquidity pool abstraction.
-- Imports an individual QuickBooks invoice into PandaDoc from the dashboard using a PandaDoc template.
-- Links imported invoices with PandaDoc document ids and keeps document state updated from webhooks.
-- Filters invoices by status, overdue only, or search text.
-- Exposes a secure `/api/invoices/sync` endpoint plus a scheduled-sync orchestration layer for manual sync or cron-driven refresh.
-- Receives PandaDoc webhooks, validates the configured signature when available, and stores payloads idempotently.
-
-## Tech stack
-
-- Next.js 15 App Router
-- TypeScript with strict mode
-- Prisma
-- PostgreSQL
-- Tailwind CSS
-- shadcn-style UI components
-- Zod
-- Vitest
-- Playwright
-- Docker and Docker Compose
-
-## Runtime requirements
-
-- Node.js 20.19+ for local development and production builds
-- PostgreSQL 16+
-
-## Release versioning
-
-The app shows the current release in the lower-right corner as `V<major>.<minor>`.
-
-Source of truth:
-
-- `package.json` version
-
-Current behavior:
-
-- this repo is currently at `1.1.0`, displayed as `V1.1`
-- every new push to `main` triggers `.github/workflows/bump-app-version.yml`
-- that workflow bumps the minor version automatically (`1.0.0` -> `1.1.0`)
-- the follow-up commit is pushed back with `[skip version bump]` to prevent loops
-
-If you need to push a release-shaping commit without consuming the next minor bump, include `[skip version bump]` in the commit message.
-
-## Setup
-
-1. Copy the environment template.
+### 1. Copy the environment file
 
 ```bash
 cp .env.example .env
 ```
 
-2. Start PostgreSQL.
+Important:
+
+- `.env.example` uses Postgres on `localhost:5432`
+- if your local machine already uses a different port, update `DATABASE_URL`
+
+### 2. Start Postgres
 
 ```bash
 docker compose up -d postgres
 ```
 
-3. Install dependencies.
+### 3. Install dependencies
 
 ```bash
 npm install
 ```
 
-4. Apply the migration and seed the database.
+### 4. Apply migrations
 
 ```bash
 npm run db:deploy
+```
+
+### 5. Seed demo data
+
+```bash
 npm run db:seed
 ```
 
-5. Start the app.
+### 6. Start the app
 
 ```bash
 npm run dev
 ```
 
-6. Sign in at [http://localhost:3000/login](http://localhost:3000/login) with:
+### 7. Sign in
 
-- Email: `DEFAULT_ADMIN_EMAIL`
-- Password: `DEFAULT_ADMIN_PASSWORD`
+- URL: `http://localhost:3000/login`
+- Email: `admin@example.com`
+- Password: `ChangeMe123!`
 
-If `SEED_DEMO_DATA=true`, the seed script also creates connected demo integrations and sample imported invoices so the UI and Playwright smoke test have a populated baseline.
+## Mock mode
+
+The app runs fully out of the box with:
+
+```env
+QUICKBOOKS_MODE=mock
+SEED_DEMO_DATA=true
+```
+
+In mock mode:
+
+- QuickBooks connect creates a demo company instead of redirecting to Intuit
+- invoice sync reads realistic payloads from `mock-data/quickbooks/outstanding-invoices-response.json`
+- the full seller -> pool -> operator flow works without external credentials
+
+## Switching to real QuickBooks later
+
+1. Set `QUICKBOOKS_MODE=oauth`
+2. Provide:
+   - `QUICKBOOKS_CLIENT_ID`
+   - `QUICKBOOKS_CLIENT_SECRET`
+   - `QUICKBOOKS_REDIRECT_URI`
+   - `QUICKBOOKS_SCOPES`
+   - `QUICKBOOKS_ENV`
+   - `QUICKBOOKS_AUTH_URL`
+   - `QUICKBOOKS_TOKEN_URL`
+   - `QUICKBOOKS_MINOR_VERSION`
+3. Reconnect QuickBooks from `/integrations`
+
+The domain layer does not change. Only the adapter boundary changes.
 
 ## Environment variables
 
-Required for the live app:
+Required for local demo:
 
 - `DATABASE_URL`
-- `TOKEN_ENCRYPTION_KEY`
-- `INTERNAL_SYNC_SECRET` or `CRON_SECRET`
-- `OUTBOUND_HTTP_TIMEOUT_MS`
 - `DEFAULT_ADMIN_EMAIL`
 - `DEFAULT_ADMIN_PASSWORD`
-- `INVOICE_SYNC_ENABLED`
-- `INVOICE_SYNC_INTERVAL_MINUTES`
-- `FACTORING_BASE_DISCOUNT_BPS`
-- `FACTORING_PARTIAL_PAYMENT_DISCOUNT_BPS`
-- `FACTORING_MIN_NET_PROCEEDS`
+- `TOKEN_ENCRYPTION_KEY`
+- `SEED_DEMO_DATA`
+- `QUICKBOOKS_MODE`
 - `ARENA_STAFI_POOL_NAME`
 - `ARENA_STAFI_NETWORK`
 - `ARENA_STAFI_OPERATOR_WALLET`
 - `ARENA_STAFI_LIQUIDITY_SNAPSHOT`
-
-Google sign-in:
-
-- `GOOGLE_CLIENT_ID`
-- `GOOGLE_CLIENT_SECRET`
-- `GOOGLE_REDIRECT_URI`
-- `GOOGLE_SCOPES`
-- `GOOGLE_AUTH_URL`
-- `GOOGLE_TOKEN_URL`
-- `GOOGLE_USERINFO_URL`
-- `GOOGLE_ALLOWED_EMAIL_DOMAINS`
-
-PandaDoc OAuth:
-
-- `PANDADOC_CLIENT_ID`
-- `PANDADOC_CLIENT_SECRET`
-- `PANDADOC_REDIRECT_URI`
-- `PANDADOC_SCOPES`
-- `PANDADOC_AUTH_URL`
-- `PANDADOC_TOKEN_URL`
-- `PANDADOC_API_BASE_URL`
-- `PANDADOC_TEMPLATE_UUID`
-- `PANDADOC_RECIPIENT_ROLE`
-- `PANDADOC_DOCUMENT_NAME_PREFIX`
-- `PANDADOC_SEND_ON_IMPORT`
-- `PANDADOC_WEBHOOK_SHARED_SECRET`
-
-QuickBooks OAuth:
-
-- `QUICKBOOKS_CLIENT_ID`
-- `QUICKBOOKS_CLIENT_SECRET`
-- `QUICKBOOKS_REDIRECT_URI`
-- `QUICKBOOKS_SCOPES`
-- `QUICKBOOKS_ENV`
-- `QUICKBOOKS_AUTH_URL`
-- `QUICKBOOKS_TOKEN_URL`
-- `QUICKBOOKS_MINOR_VERSION`
-
-Vercel deployment note:
-
-- `CRON_SECRET` should be set in Vercel if you use the built-in Vercel Cron entrypoint at `/api/cron/invoices-sync`
-- `INTERNAL_SYNC_SECRET` should be set if you also want to trigger `POST /api/invoices/sync` from another internal scheduler or worker
-
-## Google sign-in configuration
-
-The app supports Google OAuth sign-in and provisions a local user automatically after a successful callback.
-
-Current access rule:
-
-- only verified Google accounts whose email domain is in `GOOGLE_ALLOWED_EMAIL_DOMAINS`
-- the default allowed domains are `gmail.com,googlemail.com`
-
-Register this callback in your Google OAuth client:
-
-- Local: `http://localhost:3000/api/auth/google/callback`
-- Production: `https://your-domain/api/auth/google/callback`
-
-Flow:
-
-1. User clicks `Continue with Google` on `/login`
-2. The app creates a short-lived login state in `AuthLoginState`
-3. Google redirects back to `/api/auth/google/callback`
-4. The app validates state, exchanges the authorization code, fetches Google user info, verifies the email, checks the allowed domain list, and upserts `UserIdentity`
-5. The app creates its normal server-side session cookie and redirects to the factoring dashboard
-
-This implementation follows Google's OpenID Connect authorization-code flow and userinfo guidance:
-
-- [Google OpenID Connect](https://developers.google.com/identity/openid-connect/openid-connect)
-
-## PandaDoc OAuth configuration
-
-Use your PandaDoc OAuth app settings to register the callback URL:
-
-- Local: `http://localhost:3000/api/oauth/pandadoc/callback`
-
-The connect flow is:
-
-1. Logged-in user submits a same-origin `POST` to `/api/oauth/pandadoc/connect`
-2. Server creates a short-lived OAuth state record
-3. User is redirected to PandaDoc authorization
-4. PandaDoc redirects back to `/api/oauth/pandadoc/callback`
-5. The app atomically claims the OAuth state, exchanges the code, fetches the current PandaDoc member, encrypts tokens, and persists the connection
-
-## PandaDoc invoice import configuration
-
-The phase 2 invoice-to-PandaDoc flow is template based.
-
-Required PandaDoc env vars:
-
-- `PANDADOC_TEMPLATE_UUID`: template used to create the PandaDoc document
-- `PANDADOC_RECIPIENT_ROLE`: recipient role expected by the template, for example `Client`
-- `PANDADOC_DOCUMENT_NAME_PREFIX`: prefix used when naming generated documents
-- `PANDADOC_SEND_ON_IMPORT`: if `true`, the app sends the document automatically once PandaDoc reports the draft is ready
-
-Template token contract sent by the app:
-
-- `Invoice.ID`
-- `Invoice.Number`
-- `Invoice.Amount`
-- `Invoice.Balance`
-- `Invoice.Currency`
-- `Invoice.DueDate`
-- `Customer.Name`
-- `Customer.Email`
-
-The importer requires a payer email on the QuickBooks invoice. It is sourced from `BillEmail.Address` when QuickBooks provides it. If the invoice has no payer email, the dashboard keeps the `Import to PandaDoc` action disabled and explains why.
-
-## QuickBooks OAuth configuration
-
-Use your Intuit app settings to register the callback URL:
-
-- Local: `http://localhost:3000/api/oauth/quickbooks/callback`
-
-The connect flow is:
-
-1. Logged-in user submits a same-origin `POST` to `/api/oauth/quickbooks/connect`
-2. Server creates a short-lived OAuth state record
-3. User is redirected to Intuit authorization
-4. Intuit redirects back to `/api/oauth/quickbooks/callback` with `realmId`
-5. The app atomically claims the OAuth state, exchanges the code, looks up company info, encrypts tokens, and persists the company connection
-
-If the connected QuickBooks `realmId` changes, previously imported invoices tied to the old company are deleted and `lastSyncAt` is reset so stale invoice data cannot leak across companies.
-
-## Invoice sync behavior
-
-Dashboard:
-
-- Sign-in now redirects to `/factoring-dashboard`.
-- The dashboard shows PandaDoc and QuickBooks connection health, last sync timestamps, the next scheduled sync time, filters, and the normalized invoice table.
-- Each invoice row shows PandaDoc import status and exposes `Import to PandaDoc` when the invoice has a payer email and PandaDoc import is configured.
-
-Manual sync:
-
-- Trigger from the factoring dashboard using the `Sync now` button.
-
-Cron or background sync:
-
-- Send `POST /api/invoices/sync`
-- Include `Authorization: Bearer <INTERNAL_SYNC_SECRET>`
-- Optional JSON body:
-
-```json
-{
-  "connectionId": "optional-connection-id",
-  "userId": "optional-user-id",
-  "force": false
-}
-```
-
-Design notes:
-
-- Local development uses the inline `SyncQueue` implementation in [lib/jobs/sync-queue.ts](/Users/qfedesq/Desktop/PandaDoc/lib/jobs/sync-queue.ts).
-- The queue interface is intentionally narrow so BullMQ, SQS, Sidekiq-style workers, or a hosted job runner can replace it later without touching the UI or route handlers.
-- The sync endpoint prevents overlapping runs for the same connection by rejecting a second in-flight sync with `409`.
-- Scheduled syncs are controlled globally with `INVOICE_SYNC_ENABLED` and `INVOICE_SYNC_INTERVAL_MINUTES`.
-- Scheduled runs sync only QuickBooks connections whose `lastSyncAt` is older than the configured interval, or which have never synced.
-- User-triggered sync always forces an immediate refresh for the selected connection.
-- The route returns the effective `dueOnly` mode and interval so cron orchestration can be observed easily.
-
-## Factoring module behavior
-
-Eligibility rules in the Tier 1 MVP:
-
-- only outstanding invoices with positive balance
-- due date required
-- `OPEN` and `PARTIALLY_PAID` invoices are eligible
-- `OVERDUE` invoices are intentionally excluded from the managed pool
-- invoices with an active factoring transaction (`PENDING` or `FUNDED`) are not re-factored
-
-Withdraw-capital flow:
-
-1. User clicks `Withdraw Capital` on an eligible invoice
-2. The app generates or refreshes a `FactoringOffer`
-3. The terms page displays:
-   - discount rate
-   - net proceeds
-   - settlement time options
-   - managed capital source details
-4. User selects a settlement method:
-   - `USDC wallet`
-   - `ACH`
-   - `debit card`
-5. User accepts the terms and submits
-6. The app creates a `FactoringTransaction`, stores an audit trail in `FactoringEventLog`, and prepares a mocked Arena StaFi settlement reference
-7. The transaction detail page tracks status changes from `PENDING` to `FUNDED` to `REPAID`
-
-Tier 1 terms model:
-
-- discount rate is generated server-side from invoice status and due-date proximity
-- net proceeds are calculated from outstanding balance minus the discount
-- settlement timing varies by method:
-  - `USDC wallet`: within minutes
-  - `ACH`: same business day
-  - `debit card`: within 30 minutes
-
-## Arena StaFi readiness
-
-Tier 1 does not deploy live on-chain settlement, but the repository is prepared for it:
-
-- `CapitalSource` models the managed liquidity pool
-- `FactoringTransaction` stores settlement method, operator wallet, and Arena settlement reference
-- `FactoringEventLog` captures the transaction audit trail
-- `lib/arena-stafi/gateway.ts` is the service boundary where real escrow / disbursement / repayment execution can replace the current mock
-- the current mock explicitly records simulated on-chain preparation through `onChainExecutionStatus`
-
-Vercel Cron:
-
-- This repository includes [vercel.json](/Users/qfedesq/Desktop/PandaDoc/vercel.json) with a built-in hourly cron:
-
-```json
-{
-  "crons": [
-    {
-      "path": "/api/cron/invoices-sync",
-      "schedule": "0 * * * *"
-    }
-  ]
-}
-```
-
-- Vercel calls `GET /api/cron/invoices-sync`
-- The route only accepts `Authorization: Bearer <CRON_SECRET>`
-- The default hourly schedule matches the default `INVOICE_SYNC_INTERVAL_MINUTES=60`
-- If you lower `INVOICE_SYNC_INTERVAL_MINUTES` below 60, update [vercel.json](/Users/qfedesq/Desktop/PandaDoc/vercel.json) so the cron runs at least that often
-
-Vercel deployment checklist:
-
-1. Import the GitHub repo into Vercel
-2. Set all production environment variables, especially `APP_BASE_URL`, `DATABASE_URL`, `TOKEN_ENCRYPTION_KEY`, `CRON_SECRET`, `INTERNAL_SYNC_SECRET`, Google OAuth values, PandaDoc OAuth values, and QuickBooks OAuth values
-3. Point Google, PandaDoc, and QuickBooks redirect URIs at the production domain
-4. Run `prisma migrate deploy` against the production database
-5. Redeploy the project after env var changes
-6. Confirm `GET /api/cron/invoices-sync` is listed in the Vercel Cron settings and protected by `CRON_SECRET`
-
-Example cron trigger:
-
-```bash
-curl -X POST \
-  -H "Authorization: Bearer $INTERNAL_SYNC_SECRET" \
-  http://localhost:3000/api/invoices/sync
-```
-
-Production wiring examples:
-
-- Vercel Cron -> `GET /api/cron/invoices-sync`
-- GitHub Actions schedule -> `curl` the internal route with the shared secret
-- ECS/Fly/Render cron worker -> invoke the same route or call the shared sync service directly
-
-## How invoice status is derived
-
-The QuickBooks adapter does not trust UI-only status labels. Instead the internal status is derived from the raw invoice fields:
-
-- `PAID`: `balance <= 0`
-- `PARTIALLY_PAID`: `balance > 0 && balance < total_amount`
-- `OVERDUE`: `balance > 0 && due_date < today`
-- `OPEN`: `balance > 0 && due_date >= today`, or due date is missing
-
-`PARTIALLY_PAID` currently takes precedence over `OVERDUE` and `OPEN` because it carries stronger payment-state information. This is covered by tests and documented in the mapper.
-
-## Sync safety and incremental behavior
-
-- First sync requests outstanding invoices only.
-- Incremental sync requests invoices updated since the last sync, even if they are no longer outstanding.
-- If an already-imported invoice becomes paid, the app updates the local record to `PAID` instead of leaving stale outstanding data behind.
-- Imported invoices are upserted by `(connectionId, providerInvoiceId)` for idempotency.
-- Status and overdue filters now compose as true `AND` constraints instead of one silently overwriting the other.
-- Scheduled sync eligibility is based on the configured interval instead of “sync every time the cron fires”, so repeated scheduler invocations stay safe and cheap.
-
-## Security notes
-
-- Provider tokens are encrypted at rest with AES-256-GCM before they are stored in PostgreSQL.
-- Tokens are never exposed to client components.
-- App sessions use an opaque cookie with a hashed session token stored in the database.
-- OAuth state is stored server-side and expired after 10 minutes.
-- Login, OAuth, sync, and webhook routes use database-backed rate limiting with in-memory fallback only if the database is unavailable.
-- Session-bound mutation routes validate `Origin` or `Referer` against `APP_BASE_URL` to reduce CSRF risk.
-- Outbound provider HTTP calls use bounded request timeouts through `OUTBOUND_HTTP_TIMEOUT_MS`.
-- Structured logs redact token-, secret-, cookie-, and password-like keys.
-- Production runtime blocks insecure defaults when sensitive features are used, including the default admin password, cron secret, and token encryption key.
-
-## Webhooks
-
-The PandaDoc webhook endpoint is:
-
-- `POST /api/webhooks/pandadoc`
-
-Behavior:
-
-- Persists the raw payload and headers to `WebhookEventLog`
-- Computes a payload hash and de-duplicates repeated deliveries safely under concurrent webhook retries
-- Validates the webhook signature as an HMAC-SHA256 of the raw request body if `PANDADOC_WEBHOOK_SHARED_SECRET` is set
-- Processes document events to update `DocumentInvoiceLink`
-- If `PANDADOC_SEND_ON_IMPORT=true`, the webhook processor automatically sends imported documents once PandaDoc emits `document_state_changed` with `document.draft`
-
-Supported phase 2 behavior:
-
-- `Import to PandaDoc` creates a document from the configured template
-- The app stores the PandaDoc document id in `DocumentInvoiceLink`
-- Webhooks update PandaDoc document status in the factoring dashboard
-- Auto-send is idempotent and guarded by `sentAt` on the document link
-
-For local testing, example payloads are in:
-
-- [mock-data/quickbooks/outstanding-invoices-response.json](/Users/qfedesq/Desktop/PandaDoc/mock-data/quickbooks/outstanding-invoices-response.json)
-- [mock-data/pandadoc/webhook-event.json](/Users/qfedesq/Desktop/PandaDoc/mock-data/pandadoc/webhook-event.json)
-
-## Scripts
-
-- `npm run dev`
-- `npm run build`
-- `npm run lint`
-- `npm run test`
-- `npm run test:unit`
-- `npm run test:e2e`
-- `npm run db:generate`
-- `npm run db:migrate`
-- `npm run db:deploy`
-- `npm run db:seed`
+- `FACTORING_ADVANCE_RATE_BPS`
+- `FACTORING_BASE_DISCOUNT_BPS`
+- `FACTORING_PARTIAL_PAYMENT_DISCOUNT_BPS`
+- `FACTORING_PROTOCOL_FEE_BPS`
+- `FACTORING_MIN_INVOICE_AMOUNT`
+- `FACTORING_MIN_NET_PROCEEDS`
+
+Optional for extended demo:
+
+- PandaDoc OAuth variables
+- Google OAuth variables
+
+## Demo walkthrough
+
+1. Sign in at `/login`
+2. Open `/integrations`
+3. Click `Connect demo company` for QuickBooks
+4. Open `/factoring-dashboard`
+5. Click `Sync now`
+6. Review eligible invoices
+7. Click `Withdraw Capital` on an eligible invoice
+8. Accept terms and fund the invoice
+9. Open `/transactions` to verify the funded position
+10. Open `/capital-pool` to inspect deployed capital and pool balances
+11. Open `/operator` and simulate repayment for a funded invoice
+12. Return to `/capital-pool` and `/transactions` to confirm yield and fee booking
+
+## API surface
+
+Main routes:
+
+- `POST /api/auth/login`
+- `POST /api/oauth/quickbooks/connect`
+- `POST /api/invoices/sync`
+- `POST /api/factoring/transactions`
+- `POST /api/factoring/transactions/:transactionId/fund`
+- `POST /api/factoring/transactions/:transactionId/repay`
+- `POST /api/pandadoc/import-invoice`
+
+Route intent:
+
+- `/api/oauth/quickbooks/connect`
+  Connects either the mock adapter or the real OAuth flow
+- `/api/invoices/sync`
+  Imports invoices from the configured QuickBooks adapter
+- `/api/factoring/transactions`
+  Accepts terms, creates a factoring position, reserves pool liquidity, and disburses demo capital
+- `/api/factoring/transactions/:id/repay`
+  Simulates repayment, books pool yield, and records operator fees
 
 ## Tests
 
-Unit and integration:
+Run unit and integration tests:
 
 ```bash
 npm run test:unit
 ```
 
-Playwright smoke:
+Run build verification:
+
+```bash
+npm run build
+```
+
+Run Playwright smoke tests after the database is migrated and seeded:
 
 ```bash
 npm run test:e2e
 ```
 
-The Playwright suite expects the database to be migrated and seeded first.
+## Current assumptions
 
-## Future-ready extension points
+- One managed liquidity pool powers the demo
+- Demo auth is sufficient for local validation
+- PandaDoc remains optional for the factoring loop, but the integration boundary is preserved
+- Stablecoin settlement is simulated through the internal wallet ledger
 
-- `DocumentInvoiceLink` is already in the schema to link PandaDoc documents with imported invoices.
-- QuickBooks invoices are normalized into a stable internal record so PandaDoc document generation can be layered on later.
-- `MarketplaceNode`, `AccountingSystem`, `CapitalSource`, `FactoringOffer`, `FactoringTransaction`, and `FactoringEventLog` prepare the domain for additional SaaS nodes and capital sources.
-- The new factoring services isolate eligibility, terms generation, capital-source lookup, and Arena StaFi execution boundaries so future nodes like FreshBooks, Wave, or Zoho Invoice can be added without route-handler rewrites.
-- Sync runs and metric counters provide an audit trail for adding retries, dead-letter queues, and alerting.
-- PandaDoc webhook events are stored even before full downstream business processing exists.
-- The provider adapters are isolated so future features like “push payment state back into PandaDoc” or richer PandaDoc Payments orchestration can be added without route-handler rewrites.
+## Known limitations
+
+- The checked-in Prisma migration for the marketplace ledger layer was written manually because Prisma migration generation was blocked by local database port inconsistencies in this environment
+- Pool accounting is single-currency and single-pool
+- Risk tiering is heuristic, not underwritten
+- Default handling is a placeholder state only
+- Settlement is ledger-based rather than on-chain
+
+## Production hardening next steps
+
+1. Replace mock QuickBooks mode with tenant-safe live OAuth onboarding
+2. Add multi-tenant RBAC for seller, provider, and operator personas
+3. Reconcile pool accounting against a real treasury / wallet system
+4. Add webhooks or scheduled jobs for invoice payment detection
+5. Add stronger observability, retry semantics, and idempotency for funding / repayment events
+6. Introduce contract-ready settlement adapters if the product moves on-chain

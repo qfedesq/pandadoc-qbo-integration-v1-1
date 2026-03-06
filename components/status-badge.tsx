@@ -1,6 +1,7 @@
 import type { ComponentProps } from "react";
 import {
   FactoringEligibilityStatus,
+  FactoringLifecycleStatus,
   FactoringTransactionStatus,
   IntegrationStatus,
   InvoiceStatus,
@@ -13,6 +14,7 @@ type StatusValue =
   | InvoiceStatus
   | IntegrationStatus
   | FactoringEligibilityStatus
+  | FactoringLifecycleStatus
   | FactoringTransactionStatus
   | OnChainExecutionStatus;
 
@@ -22,8 +24,12 @@ const variants: Record<StatusValue, ComponentProps<typeof Badge>["variant"]> = {
   ERROR: "destructive",
   ELIGIBLE: "success",
   INELIGIBLE: "destructive",
+  IMPORTED: "muted",
+  PENDING_TERMS_ACCEPTANCE: "warning",
   PENDING: "warning",
   FUNDED: "default",
+  REPAYMENT_PENDING: "warning",
+  DEFAULTED: "destructive",
   REPAID: "success",
   CANCELLED: "muted",
   NOT_STARTED: "muted",

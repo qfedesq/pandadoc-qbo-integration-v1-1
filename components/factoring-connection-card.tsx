@@ -11,6 +11,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { isQuickBooksMockMode } from "@/lib/env";
 import { formatDateTime } from "@/lib/utils";
 
 type Props = {
@@ -90,7 +91,11 @@ export function FactoringConnectionCard({
           <form action={connectHref} method="post">
             <input type="hidden" name="redirectTo" value="/factoring-dashboard" />
             <Button type="submit" variant={isConnected ? "secondary" : "default"}>
-              {isConnected ? "Reconnect here" : "Connect here"}
+              {isConnected
+                ? "Reconnect here"
+                : provider === Provider.QUICKBOOKS && isQuickBooksMockMode()
+                  ? "Connect demo company"
+                  : "Connect here"}
             </Button>
           </form>
         ) : (

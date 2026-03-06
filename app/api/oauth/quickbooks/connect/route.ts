@@ -2,8 +2,10 @@ import { NextResponse } from "next/server";
 import { Provider } from "@prisma/client";
 
 import { getCurrentSessionUser } from "@/lib/auth/session";
-import { createOAuthState } from "@/lib/db/integrations";
+import { createOAuthState, upsertQuickBooksConnection } from "@/lib/db/integrations";
+import { isQuickBooksMockMode } from "@/lib/env";
 import { logger } from "@/lib/logging/logger";
+import { getMockQuickBooksCompanyInfo } from "@/lib/providers/quickbooks/mock";
 import { buildQuickBooksAuthorizationUrl } from "@/lib/providers/quickbooks/oauth";
 import { sanitizeInternalRedirectPath } from "@/lib/security/internal-redirect";
 import { assertValidAppRequestOrigin } from "@/lib/security/origin";
@@ -24,6 +26,37 @@ export async function POST(request: Request) {
       formData.get("redirectTo"),
       "/integrations",
     );
+
+    if (isQuickBooksMockMode()) {
+      const company = getMockQuickBooksCompanyInfo();
+      await upsertQuickBooksConnection({
+        userId: user.id,
+        realmId: company.realmId,
+        companyName: company.companyName,
+        country: company.country,
+        currency: company.currency,
+        metadata: {
+          mode: "mock",
+          provider: "quickbooks-demo-adapter",
+        },
+        tokens: {
+          accessToken: "quickbooks-mock-access-token",
+          refreshToken: "quickbooks-mock-refresh-token",
+          expiresInSeconds: 60 * 60 * 24 * 365,
+          refreshTokenExpiresInSeconds: 60 * 60 * 24 * 365,
+          tokenType: "Bearer",
+          scope: "com.intuit.quickbooks.accounting",
+        },
+      });
+
+      return NextResponse.redirect(
+        new URL(
+          `${redirectTo}?notice=${encodeURIComponent("Connected QuickBooks demo company.")}`,
+          request.url,
+        ),
+        303,
+      );
+    }
 
     const rateLimit = await enforceRateLimit({
       key: `oauth:connect:quickbooks:${getRequestIp(request)}`,

@@ -10,6 +10,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { isQuickBooksMockMode } from "@/lib/env";
 import { formatDate } from "@/lib/utils";
 
 type Connection = IntegrationConnection & {
@@ -88,7 +89,11 @@ export function IntegrationCard({
           <form action={connectHref} method="post">
             <input type="hidden" name="redirectTo" value="/integrations" />
             <Button type="submit" variant={isConnected ? "secondary" : "default"}>
-              {isConnected ? "Reconnect" : "Connect"}
+              {isConnected
+                ? "Reconnect"
+                : provider === "QUICKBOOKS" && isQuickBooksMockMode()
+                  ? "Connect demo company"
+                  : "Connect"}
             </Button>
           </form>
         ) : (

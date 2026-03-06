@@ -7,9 +7,9 @@ import { Card, CardContent } from "@/components/ui/card";
 
 const features = [
   {
-    title: "Dual OAuth foundation",
+    title: "QuickBooks mock or OAuth",
     description:
-      "Independent PandaDoc and QuickBooks Online connections with secure server-side token storage.",
+      "Run the demo fully in mock mode out of the box, or swap in live OAuth credentials later without changing the product flow.",
     icon: ShieldCheck,
   },
   {
@@ -19,9 +19,9 @@ const features = [
     icon: DatabaseZap,
   },
   {
-    title: "Factoring-ready flow",
+    title: "Pool and operator views",
     description:
-      "The dashboard now supports withdraw-capital actions, settlement-method selection, and transaction lifecycle tracking.",
+      "Track seller disbursements, pool utilization, accrued yield, and protocol fee balances across dedicated dashboards.",
     icon: Workflow,
   },
 ];
@@ -41,7 +41,9 @@ export default function HomePage() {
                 Turn QuickBooks receivables into a Protofire-branded factoring marketplace node.
               </h1>
               <p className="max-w-3xl text-lg text-slate-300">
-                A production-minded workspace for secure OAuth, outstanding invoice normalization, withdraw-capital flows, and Arena StaFi-ready settlement tracking across the full factoring loop.
+                A production-minded workspace for invoice sync, premium seller UX,
+                instant capital withdrawal, pool accounting, and repayment
+                simulation across the full factoring loop.
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-3">
@@ -67,7 +69,9 @@ export default function HomePage() {
                   Connect. Import. Withdraw. Track. Repay.
                 </h2>
                 <p className="mt-2 text-sm text-slate-300">
-                  The model supports invoice-to-document links, managed-pool factoring transactions, audit trails, and a clean path toward Arena StaFi execution.
+                  The model supports seller disbursement in demo USDC, operator fee
+                  booking, pool yield tracking, audit trails, and a clean path
+                  toward live infrastructure later.
                 </p>
               </div>
               <div className="grid gap-3">

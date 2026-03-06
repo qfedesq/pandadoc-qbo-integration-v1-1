@@ -17,6 +17,11 @@ const documentLinksInclude = {
 } satisfies Prisma.DocumentInvoiceLinkFindManyArgs;
 
 const factoringInvoiceInclude = {
+  user: {
+    select: {
+      organizationId: true,
+    },
+  },
   documentLinks: documentLinksInclude,
   factoringOffer: true,
   factoringTransactions: {
@@ -41,6 +46,16 @@ const factoringTransactionInclude = {
   },
   factoringOffer: true,
   capitalSource: true,
+  poolTransactions: {
+    orderBy: {
+      createdAt: "asc",
+    },
+  },
+  walletLedgers: {
+    orderBy: {
+      createdAt: "asc",
+    },
+  },
   events: {
     orderBy: {
       createdAt: "asc",
@@ -74,6 +89,8 @@ export async function getOrCreateManagedCapitalSource() {
       currency: "USDC",
       operatorWallet: env.ARENA_STAFI_OPERATOR_WALLET,
       liquiditySnapshot: env.ARENA_STAFI_LIQUIDITY_SNAPSHOT.toFixed(2),
+      targetAdvanceRateBps: env.FACTORING_ADVANCE_RATE_BPS,
+      operatorFeeBps: env.FACTORING_PROTOCOL_FEE_BPS,
       isActive: true,
       metadata: buildCapitalSourceMetadata(),
     },
@@ -86,6 +103,13 @@ export async function getOrCreateManagedCapitalSource() {
       currency: "USDC",
       operatorWallet: env.ARENA_STAFI_OPERATOR_WALLET,
       liquiditySnapshot: env.ARENA_STAFI_LIQUIDITY_SNAPSHOT.toFixed(2),
+      totalLiquidity: env.ARENA_STAFI_LIQUIDITY_SNAPSHOT.toFixed(2),
+      availableLiquidity: env.ARENA_STAFI_LIQUIDITY_SNAPSHOT.toFixed(2),
+      deployedLiquidity: "0.00",
+      accruedYield: "0.00",
+      protocolFeesCollected: "0.00",
+      targetAdvanceRateBps: env.FACTORING_ADVANCE_RATE_BPS,
+      operatorFeeBps: env.FACTORING_PROTOCOL_FEE_BPS,
       metadata: buildCapitalSourceMetadata(),
     },
   });
@@ -148,6 +172,7 @@ export async function getFactoringTransactionForUser(input: {
 
 export async function upsertFactoringOffer(input: {
   userId: string;
+  organizationId?: string | null;
   importedInvoiceId: string;
   capitalSourceId: string;
   marketplaceNode: import("@prisma/client").MarketplaceNode;
@@ -155,9 +180,16 @@ export async function upsertFactoringOffer(input: {
   eligibilityStatus: FactoringEligibilityStatus;
   ineligibilityReason?: string | null;
   grossAmount: Prisma.Decimal | string | number;
+  advanceRateBps: number;
+  advanceAmount: Prisma.Decimal | string | number;
   discountRateBps: number;
   discountAmount: Prisma.Decimal | string | number;
+  operatorFeeBps: number;
+  operatorFeeAmount: Prisma.Decimal | string | number;
   netProceeds: Prisma.Decimal | string | number;
+  expectedRepaymentAmount: Prisma.Decimal | string | number;
+  expectedMaturityDate?: Date | null;
+  riskTier: import("@prisma/client").RiskTier;
   settlementCurrency: string;
   settlementTimeSummary: string;
   termsSnapshot: Prisma.InputJsonObject;
@@ -168,15 +200,23 @@ export async function upsertFactoringOffer(input: {
       importedInvoiceId: input.importedInvoiceId,
     },
     update: {
+      organizationId: input.organizationId,
       capitalSourceId: input.capitalSourceId,
       marketplaceNode: input.marketplaceNode,
       accountingSystem: input.accountingSystem,
       eligibilityStatus: input.eligibilityStatus,
       ineligibilityReason: input.ineligibilityReason,
       grossAmount: input.grossAmount,
+      advanceRateBps: input.advanceRateBps,
+      advanceAmount: input.advanceAmount,
       discountRateBps: input.discountRateBps,
       discountAmount: input.discountAmount,
+      operatorFeeBps: input.operatorFeeBps,
+      operatorFeeAmount: input.operatorFeeAmount,
       netProceeds: input.netProceeds,
+      expectedRepaymentAmount: input.expectedRepaymentAmount,
+      expectedMaturityDate: input.expectedMaturityDate,
+      riskTier: input.riskTier,
       settlementCurrency: input.settlementCurrency,
       settlementTimeSummary: input.settlementTimeSummary,
       termsSnapshot: input.termsSnapshot,
@@ -184,6 +224,7 @@ export async function upsertFactoringOffer(input: {
     },
     create: {
       userId: input.userId,
+      organizationId: input.organizationId,
       importedInvoiceId: input.importedInvoiceId,
       capitalSourceId: input.capitalSourceId,
       marketplaceNode: input.marketplaceNode,
@@ -191,9 +232,16 @@ export async function upsertFactoringOffer(input: {
       eligibilityStatus: input.eligibilityStatus,
       ineligibilityReason: input.ineligibilityReason,
       grossAmount: input.grossAmount,
+      advanceRateBps: input.advanceRateBps,
+      advanceAmount: input.advanceAmount,
       discountRateBps: input.discountRateBps,
       discountAmount: input.discountAmount,
+      operatorFeeBps: input.operatorFeeBps,
+      operatorFeeAmount: input.operatorFeeAmount,
       netProceeds: input.netProceeds,
+      expectedRepaymentAmount: input.expectedRepaymentAmount,
+      expectedMaturityDate: input.expectedMaturityDate,
+      riskTier: input.riskTier,
       settlementCurrency: input.settlementCurrency,
       settlementTimeSummary: input.settlementTimeSummary,
       termsSnapshot: input.termsSnapshot,
@@ -240,6 +288,109 @@ export async function listFactoringOffersForUser(userId: string) {
     where: {
       userId,
     },
+  });
+}
+
+export async function listFactoringTransactionsForUser(input: {
+  userId: string;
+  take?: number;
+  statuses?: FactoringTransactionStatus[];
+}) {
+  return prisma.factoringTransaction.findMany({
+    where: {
+      userId: input.userId,
+      status: input.statuses
+        ? {
+            in: input.statuses,
+          }
+        : undefined,
+    },
+    include: factoringTransactionInclude,
+    orderBy: {
+      createdAt: "desc",
+    },
+    take: input.take,
+  });
+}
+
+export async function listFactoringEventsForUser(input: {
+  userId: string;
+  take?: number;
+}) {
+  return prisma.factoringEventLog.findMany({
+    where: {
+      userId: input.userId,
+    },
+    include: {
+      importedInvoice: true,
+      factoringTransaction: true,
+    },
+    orderBy: {
+      createdAt: "desc",
+    },
+    take: input.take,
+  });
+}
+
+export async function getWalletBalance(input: {
+  ownerType: import("@prisma/client").LedgerOwnerType;
+  ownerId: string;
+  currency?: string;
+}) {
+  const latest = await prisma.walletLedger.findFirst({
+    where: {
+      ownerType: input.ownerType,
+      ownerId: input.ownerId,
+      currency: input.currency,
+    },
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+  });
+
+  return latest?.balanceAfter ?? new Prisma.Decimal(0);
+}
+
+export async function listWalletLedgerEntries(input: {
+  ownerType?: import("@prisma/client").LedgerOwnerType;
+  ownerId?: string;
+  userId?: string;
+  take?: number;
+}) {
+  return prisma.walletLedger.findMany({
+    where: {
+      ownerType: input.ownerType,
+      ownerId: input.ownerId,
+      factoringTransaction: input.userId
+        ? {
+            userId: input.userId,
+          }
+        : undefined,
+    },
+    include: {
+      capitalSource: true,
+      factoringTransaction: true,
+    },
+    orderBy: {
+      createdAt: "desc",
+    },
+    take: input.take,
+  });
+}
+
+export async function listPoolTransactions(input: {
+  capitalSourceId: string;
+  take?: number;
+}) {
+  return prisma.poolTransaction.findMany({
+    where: {
+      capitalSourceId: input.capitalSourceId,
+    },
+    include: {
+      factoringTransaction: true,
+    },
+    orderBy: {
+      createdAt: "desc",
+    },
+    take: input.take,
   });
 }
 

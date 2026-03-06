@@ -1,5 +1,6 @@
 import {
   InvoiceStatus,
+  RiskTier,
   SettlementMethod,
   type CapitalSource,
 } from "@prisma/client";
@@ -36,10 +37,19 @@ export type SettlementMethodOption = {
 
 export type CalculatedFactoringOffer = {
   eligibility: ReturnType<typeof evaluateFactoringEligibility>;
+  riskTier: RiskTier;
   grossAmount: number;
+  advanceRateBps: number;
+  advanceAmount: number;
   discountRateBps: number;
   discountAmount: number;
+  operatorFeeBps: number;
+  operatorFeeAmount: number;
+  poolYieldAmount: number;
   netProceeds: number;
+  expectedRepaymentAmount: number;
+  expectedMaturityDate: Date | null;
+  expectedTermDays: number | null;
   settlementCurrency: string;
   settlementTimeSummary: string;
   settlementOptions: SettlementMethodOption[];
@@ -55,10 +65,20 @@ export type CalculatedFactoringOffer = {
     };
     economics: {
       grossAmount: number;
+      advanceRateBps: number;
+      advanceAmount: number;
       discountRateBps: number;
       discountAmount: number;
+      operatorFeeBps: number;
+      operatorFeeAmount: number;
       netProceeds: number;
+      expectedRepaymentAmount: number;
       settlementCurrency: string;
+    };
+    risk: {
+      tier: RiskTier;
+      expectedTermDays: number | null;
+      expectedMaturityDate: string | null;
     };
     capitalSource: {
       id: string;
@@ -66,6 +86,7 @@ export type CalculatedFactoringOffer = {
       name: string;
       network: string;
       currency: string;
+      availableLiquidity: number;
     };
     settlementOptions: SettlementMethodOption[];
     notes: string[];
@@ -76,9 +97,9 @@ const settlementMethodDetails: Record<SettlementMethod, SettlementMethodOption> 
   USDC_WALLET: {
     method: SettlementMethod.USDC_WALLET,
     label: "USDC wallet",
-    description: "Receive settlement from the managed Arena StaFi pool in USDC.",
+    description: "Receive settlement to the in-app demo wallet or any USDC-compatible address.",
     settlementTimeLabel: "Within minutes",
-    helperText: "Provide the wallet address that should receive USDC.",
+    helperText: "Provide the wallet address that should receive USDC for the demo flow.",
   },
   ACH: {
     method: SettlementMethod.ACH,
@@ -105,27 +126,69 @@ function roundCurrency(value: number) {
   return Math.round(value * 100) / 100;
 }
 
+function getExpectedTermDays(dueDate: Date | null | undefined, now: Date) {
+  if (!dueDate) {
+    return null;
+  }
+
+  const dueDateOnly = toDateOnly(dueDate);
+  const nowDateOnly = toDateOnly(now);
+
+  return Math.max(
+    Math.ceil((dueDateOnly.getTime() - nowDateOnly.getTime()) / 86_400_000),
+    0,
+  );
+}
+
+function getRiskTier(input: OfferInvoiceInput, now: Date): RiskTier {
+  const grossAmount = toNumber(input.balanceAmount);
+  const expectedTermDays = getExpectedTermDays(input.dueDate, now);
+
+  if (
+    input.normalizedStatus === InvoiceStatus.PARTIALLY_PAID ||
+    (expectedTermDays !== null && expectedTermDays <= 10)
+  ) {
+    return RiskTier.HIGH;
+  }
+
+  if (
+    grossAmount >= 7_500 ||
+    (expectedTermDays !== null && expectedTermDays <= 30)
+  ) {
+    return RiskTier.MEDIUM;
+  }
+
+  return RiskTier.LOW;
+}
+
 function getDiscountRateBps(input: OfferInvoiceInput, now: Date) {
   let basisPoints =
     input.normalizedStatus === InvoiceStatus.PARTIALLY_PAID
       ? env.FACTORING_PARTIAL_PAYMENT_DISCOUNT_BPS
       : env.FACTORING_BASE_DISCOUNT_BPS;
 
-  if (input.dueDate) {
-    const dueDateOnly = toDateOnly(input.dueDate);
-    const nowDateOnly = toDateOnly(now);
-    const daysUntilDue = Math.ceil(
-      (dueDateOnly.getTime() - nowDateOnly.getTime()) / 86_400_000,
-    );
+  const expectedTermDays = getExpectedTermDays(input.dueDate, now);
 
-    if (daysUntilDue <= 14) {
+  if (expectedTermDays !== null) {
+    if (expectedTermDays <= 14) {
       basisPoints -= 50;
-    } else if (daysUntilDue >= 45) {
+    } else if (expectedTermDays >= 45) {
       basisPoints += 75;
     }
   }
 
   return Math.min(Math.max(basisPoints, 200), 900);
+}
+
+function getAdvanceRateBps(
+  capitalSource: Pick<CapitalSource, "targetAdvanceRateBps">,
+  riskTier: RiskTier,
+) {
+  const baseRate = capitalSource.targetAdvanceRateBps || env.FACTORING_ADVANCE_RATE_BPS;
+  const riskAdjustmentBps =
+    riskTier === RiskTier.HIGH ? 500 : riskTier === RiskTier.MEDIUM ? 250 : 0;
+
+  return Math.min(Math.max(baseRate - riskAdjustmentBps, 8_500), 9_500);
 }
 
 export function getSettlementMethodOptions() {
@@ -140,38 +203,88 @@ export function formatDiscountRate(discountRateBps: number) {
   return `${(discountRateBps / 100).toFixed(2)}%`;
 }
 
+export function formatAdvanceRate(advanceRateBps: number) {
+  return `${(advanceRateBps / 100).toFixed(2)}%`;
+}
+
 export function calculateFactoringOffer(
   input: OfferInvoiceInput,
-  capitalSource: Pick<CapitalSource, "id" | "key" | "name" | "network" | "currency">,
+  capitalSource: Pick<
+    CapitalSource,
+    | "id"
+    | "key"
+    | "name"
+    | "network"
+    | "currency"
+    | "availableLiquidity"
+    | "targetAdvanceRateBps"
+    | "operatorFeeBps"
+  >,
   now = new Date(),
 ): CalculatedFactoringOffer {
   const eligibility = evaluateFactoringEligibility(input);
   const grossAmount = roundCurrency(toNumber(input.balanceAmount));
+  const riskTier = getRiskTier(input, now);
+  const advanceRateBps = getAdvanceRateBps(capitalSource, riskTier);
+  const advanceAmount = roundCurrency(grossAmount * (advanceRateBps / 10_000));
   const discountRateBps = getDiscountRateBps(input, now);
-  const discountAmount = roundCurrency(grossAmount * (discountRateBps / 10_000));
-  const netProceeds = roundCurrency(Math.max(grossAmount - discountAmount, 0));
+  const discountAmount = roundCurrency(advanceAmount * (discountRateBps / 10_000));
+  const operatorFeeBps = capitalSource.operatorFeeBps;
+  const operatorFeeAmount = roundCurrency(
+    advanceAmount * (operatorFeeBps / 10_000),
+  );
+  const netProceeds = roundCurrency(
+    Math.max(advanceAmount - discountAmount - operatorFeeAmount, 0),
+  );
+  const expectedRepaymentAmount = roundCurrency(advanceAmount);
+  const expectedMaturityDate = input.dueDate ?? null;
+  const expectedTermDays = getExpectedTermDays(expectedMaturityDate, now);
   const settlementOptions = getSettlementMethodOptions();
   const settlementTimeSummary = settlementOptions
     .map((option) => `${option.label}: ${option.settlementTimeLabel}`)
     .join(" / ");
 
-  const finalEligibility =
-    netProceeds < env.FACTORING_MIN_NET_PROCEEDS
-      ? {
-          ...eligibility,
-          eligible: false,
-          status: eligibility.status,
-          reason:
-            "Net proceeds fall below the minimum threshold for the managed pool.",
-        }
-      : eligibility;
+  let finalEligibility = eligibility;
+
+  if (grossAmount < env.FACTORING_MIN_INVOICE_AMOUNT) {
+    finalEligibility = {
+      ...eligibility,
+      eligible: false,
+      reason: `Invoice amount falls below the minimum ${formatCurrency(
+        env.FACTORING_MIN_INVOICE_AMOUNT,
+        input.currency ?? "USD",
+      )} threshold for the managed pool.`,
+    };
+  } else if (netProceeds < env.FACTORING_MIN_NET_PROCEEDS) {
+    finalEligibility = {
+      ...eligibility,
+      eligible: false,
+      reason:
+        "Net proceeds fall below the minimum threshold for the managed pool.",
+    };
+  } else if (Number(capitalSource.availableLiquidity.toString()) < netProceeds) {
+    finalEligibility = {
+      ...eligibility,
+      eligible: false,
+      reason: "The pool does not have enough available liquidity for this advance.",
+    };
+  }
 
   return {
     eligibility: finalEligibility,
+    riskTier,
     grossAmount,
+    advanceRateBps,
+    advanceAmount,
     discountRateBps,
     discountAmount,
+    operatorFeeBps,
+    operatorFeeAmount,
+    poolYieldAmount: discountAmount,
     netProceeds,
+    expectedRepaymentAmount,
+    expectedMaturityDate,
+    expectedTermDays,
     settlementCurrency: capitalSource.currency,
     settlementTimeSummary,
     settlementOptions,
@@ -187,10 +300,20 @@ export function calculateFactoringOffer(
       },
       economics: {
         grossAmount,
+        advanceRateBps,
+        advanceAmount,
         discountRateBps,
         discountAmount,
+        operatorFeeBps,
+        operatorFeeAmount,
         netProceeds,
+        expectedRepaymentAmount,
         settlementCurrency: capitalSource.currency,
+      },
+      risk: {
+        tier: riskTier,
+        expectedTermDays,
+        expectedMaturityDate: expectedMaturityDate?.toISOString() ?? null,
       },
       capitalSource: {
         id: capitalSource.id,
@@ -198,12 +321,15 @@ export function calculateFactoringOffer(
         name: capitalSource.name,
         network: capitalSource.network,
         currency: capitalSource.currency,
+        availableLiquidity: Number(capitalSource.availableLiquidity.toString()),
       },
       settlementOptions,
       notes: [
-        `${formatCurrency(grossAmount, input.currency ?? "USD")} outstanding balance under evaluation.`,
-        `Indicative discount rate: ${formatDiscountRate(discountRateBps)}.`,
-        "Tier 1 settlement is operator-managed and Arena StaFi-ready, but on-chain execution remains simulated in this MVP.",
+        `${formatCurrency(grossAmount, input.currency ?? "USD")} eligible invoice balance under evaluation.`,
+        `Advance rate: ${formatAdvanceRate(advanceRateBps)} with ${formatDiscountRate(
+          discountRateBps,
+        )} discount pricing.`,
+        `Protocol fee: ${formatDiscountRate(operatorFeeBps)}. Pool risk tier: ${riskTier}.`,
       ],
     },
   };

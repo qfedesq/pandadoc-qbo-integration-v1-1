@@ -1,4 +1,9 @@
-import { FactoringTransactionStatus, InvoiceStatus, Provider } from "@prisma/client";
+import {
+  FactoringTransactionStatus,
+  InvoiceStatus,
+  LedgerOwnerType,
+  Provider,
+} from "@prisma/client";
 import Link from "next/link";
 
 import { FactoringConnectionCard } from "@/components/factoring-connection-card";
@@ -13,6 +18,7 @@ import { requireUser } from "@/lib/auth/require-user";
 import {
   countFactoringTransactionsByStatus,
   getOrCreateManagedCapitalSource,
+  getWalletBalance,
   listFactoringInvoicesForUser,
   listRecentFactoringTransactionsForUser,
 } from "@/lib/db/factoring";
@@ -28,7 +34,7 @@ import {
   getProviderOauthConfigurationMessage,
   isProviderOauthConfigured,
 } from "@/lib/providers/configuration";
-import { formatDateTime } from "@/lib/utils";
+import { formatCurrency, formatDateTime } from "@/lib/utils";
 
 type SearchParams = {
   q?: string;
@@ -51,7 +57,13 @@ export default async function FactoringDashboardPage({ searchParams }: Props) {
     findUserConnection(user.id, Provider.PANDADOC),
     findUserConnection(user.id, Provider.QUICKBOOKS),
   ]);
-  const [invoices, recentTransactions, activeTransactionsCount, capitalSource] =
+  const [
+    invoices,
+    recentTransactions,
+    activeTransactionsCount,
+    capitalSource,
+    sellerWalletBalance,
+  ] =
     await Promise.all([
       listFactoringInvoicesForUser({
         userId: user.id,
@@ -68,6 +80,11 @@ export default async function FactoringDashboardPage({ searchParams }: Props) {
         ],
       }),
       getOrCreateManagedCapitalSource(),
+      getWalletBalance({
+        ownerType: LedgerOwnerType.SELLER,
+        ownerId: user.id,
+        currency: "USDC",
+      }),
     ]);
   const latestSync = quickBooksConnection
     ? await getLatestSyncRun(quickBooksConnection.id)
@@ -156,7 +173,7 @@ export default async function FactoringDashboardPage({ searchParams }: Props) {
         />
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-3">
+      <div className="grid gap-4 xl:grid-cols-5">
         <Card className="border-border/70 shadow-panel">
           <CardHeader>
             <CardTitle>Eligible invoices</CardTitle>
@@ -173,33 +190,52 @@ export default async function FactoringDashboardPage({ searchParams }: Props) {
         </Card>
         <Card className="border-border/70 shadow-panel">
           <CardHeader>
-            <CardTitle>Active transactions</CardTitle>
+            <CardTitle>Seller wallet</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm text-muted-foreground">
+            <div className="text-2xl font-semibold text-foreground">
+              {formatCurrency(sellerWalletBalance.toString(), "USDC")}
+            </div>
+            <p>
+              Demo balance credited whenever capital is disbursed against an
+              invoice.
+            </p>
+          </CardContent>
+        </Card>
+        <Card className="border-border/70 shadow-panel">
+          <CardHeader>
+            <CardTitle>Active positions</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2 text-sm text-muted-foreground">
             <div className="text-4xl font-semibold text-foreground">
               {activeTransactionsCount}
             </div>
             <p>
-              Pending and funded transactions remain visible until repayment is
-              recorded and the invoice exits the pool.
+              Funded positions stay visible here until repayment is simulated or
+              the position defaults.
             </p>
           </CardContent>
         </Card>
         <Card className="border-border/70 shadow-panel">
           <CardHeader>
-            <CardTitle>Capital source</CardTitle>
+            <CardTitle>Pool available</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2 text-sm text-muted-foreground">
-            <div className="text-lg font-semibold text-foreground">
-              {capitalSource.name}
+            <div className="text-2xl font-semibold text-foreground">
+              {formatCurrency(capitalSource.availableLiquidity.toString(), "USDC")}
             </div>
-            <p>
-              {capitalSource.network} · {capitalSource.currency} · Managed pool
-            </p>
-            <p>
-              Liquidity snapshot: {capitalSource.liquiditySnapshot?.toString() ?? "0"}{" "}
-              {capitalSource.currency}
-            </p>
+            <p>Deployable liquidity remaining in the managed capital pool.</p>
+          </CardContent>
+        </Card>
+        <Card className="border-border/70 shadow-panel">
+          <CardHeader>
+            <CardTitle>Accrued yield</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm text-muted-foreground">
+            <div className="text-2xl font-semibold text-foreground">
+              {formatCurrency(capitalSource.accruedYield.toString(), "USDC")}
+            </div>
+            <p>Yield already realized by the pool across repaid positions.</p>
           </CardContent>
         </Card>
       </div>

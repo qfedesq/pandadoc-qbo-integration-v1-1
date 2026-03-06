@@ -12,6 +12,9 @@ const capitalSource = {
   name: "Protofire Arena StaFi Managed Pool",
   network: "Arena StaFi",
   currency: "USDC",
+  availableLiquidity: "500000.00" as never,
+  targetAdvanceRateBps: 9000,
+  operatorFeeBps: 50,
 };
 
 describe("calculateFactoringOffer", () => {
@@ -35,9 +38,12 @@ describe("calculateFactoringOffer", () => {
     );
 
     expect(offer.eligibility.eligible).toBe(true);
+    expect(offer.advanceRateBps).toBe(8750);
     expect(offer.discountRateBps).toBe(400);
-    expect(offer.discountAmount).toBe(50);
-    expect(offer.netProceeds).toBe(1200);
+    expect(offer.discountAmount).toBe(43.75);
+    expect(offer.operatorFeeAmount).toBe(5.47);
+    expect(offer.netProceeds).toBe(1044.53);
+    expect(offer.expectedRepaymentAmount).toBe(1093.75);
     expect(offer.settlementOptions).toHaveLength(3);
     expect(offer.termsSnapshot.capitalSource.key).toBe("arena-stafi-managed-pool");
   });
@@ -62,6 +68,7 @@ describe("calculateFactoringOffer", () => {
     );
 
     expect(offer.discountRateBps).toBe(275);
+    expect(offer.riskTier).toBe("HIGH");
     expect(formatDiscountRate(offer.discountRateBps)).toBe("2.75%");
   });
 
@@ -85,7 +92,7 @@ describe("calculateFactoringOffer", () => {
     );
 
     expect(offer.eligibility.eligible).toBe(false);
-    expect(offer.eligibility.reason).toContain("minimum threshold");
+    expect(offer.eligibility.reason).toContain("minimum");
   });
 
   it("exposes all settlement methods for the confirmation flow", () => {

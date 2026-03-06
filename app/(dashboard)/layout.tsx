@@ -24,10 +24,22 @@ export default async function DashboardLayout({
           <div className="flex flex-wrap items-center gap-3">
             <nav className="flex items-center gap-2 rounded-full border border-white/12 bg-white/5 p-1">
               <Button asChild variant="ghost" size="sm">
-                <Link href="/integrations">Integrations</Link>
+                <Link href="/factoring-dashboard">Seller</Link>
               </Button>
               <Button asChild variant="ghost" size="sm">
-                <Link href="/factoring-dashboard">Factoring dashboard</Link>
+                <Link href="/invoices">Invoices</Link>
+              </Button>
+              <Button asChild variant="ghost" size="sm">
+                <Link href="/transactions">Transactions</Link>
+              </Button>
+              <Button asChild variant="ghost" size="sm">
+                <Link href="/capital-pool">Capital pool</Link>
+              </Button>
+              <Button asChild variant="ghost" size="sm">
+                <Link href="/operator">Operator</Link>
+              </Button>
+              <Button asChild variant="ghost" size="sm">
+                <Link href="/integrations">Integrations</Link>
               </Button>
             </nav>
             <div className="text-sm text-muted-foreground">{user.email}</div>

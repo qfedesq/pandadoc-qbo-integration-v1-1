@@ -11,6 +11,7 @@ import { AppError } from "@/lib/utils/errors";
 
 export type ImportedInvoiceUpsertInput = {
   userId: string;
+  organizationId?: string | null;
   connectionId: string;
   quickBooksCompanyId?: string | null;
   providerInvoiceId: string;
@@ -32,6 +33,7 @@ export type ImportedInvoiceUpsertInput = {
 
 export async function startSyncRun(input: {
   userId?: string | null;
+  organizationId?: string | null;
   connectionId?: string | null;
   provider: Provider;
   trigger: SyncTrigger;
@@ -63,6 +65,7 @@ export async function startSyncRun(input: {
   return prisma.syncRun.create({
     data: {
       userId: input.userId,
+      organizationId: input.organizationId,
       connectionId: input.connectionId,
       provider: input.provider,
       trigger: input.trigger,
@@ -114,6 +117,7 @@ export async function upsertImportedInvoice(input: ImportedInvoiceUpsertInput) {
     },
     create: {
       userId: input.userId,
+      organizationId: input.organizationId,
       connectionId: input.connectionId,
       quickBooksCompanyId: input.quickBooksCompanyId,
       provider: Provider.QUICKBOOKS,
@@ -134,6 +138,7 @@ export async function upsertImportedInvoice(input: ImportedInvoiceUpsertInput) {
       lastSyncedAt: input.lastSyncedAt,
     },
     update: {
+      organizationId: input.organizationId,
       quickBooksCompanyId: input.quickBooksCompanyId,
       docNumber: input.docNumber,
       totalAmount: input.totalAmount,

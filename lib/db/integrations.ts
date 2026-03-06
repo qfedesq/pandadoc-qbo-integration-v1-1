@@ -183,6 +183,14 @@ export async function upsertPandaDocConnection(input: {
   };
 }) {
   return prisma.$transaction(async (tx) => {
+    const user = await tx.user.findUnique({
+      where: {
+        id: input.userId,
+      },
+      select: {
+        organizationId: true,
+      },
+    });
     const connection = await tx.integrationConnection.upsert({
       where: {
         userId_provider: {
@@ -192,6 +200,7 @@ export async function upsertPandaDocConnection(input: {
       },
       create: {
         userId: input.userId,
+        organizationId: user?.organizationId,
         provider: Provider.PANDADOC,
         status: "CONNECTED",
         displayName: input.displayName,
@@ -201,6 +210,7 @@ export async function upsertPandaDocConnection(input: {
         metadata: input.metadata,
       },
       update: {
+        organizationId: user?.organizationId,
         status: "CONNECTED",
         displayName: input.displayName,
         externalAccountId: input.accountId,
@@ -265,6 +275,14 @@ export async function upsertQuickBooksConnection(input: {
   };
 }) {
   return prisma.$transaction(async (tx) => {
+    const user = await tx.user.findUnique({
+      where: {
+        id: input.userId,
+      },
+      select: {
+        organizationId: true,
+      },
+    });
     const existingConnection = await tx.integrationConnection.findUnique({
       where: {
         userId_provider: {
@@ -291,6 +309,7 @@ export async function upsertQuickBooksConnection(input: {
       },
       create: {
         userId: input.userId,
+        organizationId: user?.organizationId,
         provider: Provider.QUICKBOOKS,
         status: "CONNECTED",
         displayName: input.companyName ?? `QuickBooks ${input.realmId}`,
@@ -300,6 +319,7 @@ export async function upsertQuickBooksConnection(input: {
         metadata: input.metadata,
       },
       update: {
+        organizationId: user?.organizationId,
         status: "CONNECTED",
         displayName: input.companyName ?? `QuickBooks ${input.realmId}`,
         externalAccountId: input.realmId,

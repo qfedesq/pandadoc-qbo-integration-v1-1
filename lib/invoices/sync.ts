@@ -1,6 +1,7 @@
 import { Provider, SyncRunStatus, SyncTrigger } from "@prisma/client";
 
 import {
+  getConnectionWithSecrets,
   markConnectionError,
   markConnectionSynced,
 } from "@/lib/db/integrations";
@@ -12,7 +13,9 @@ import {
 } from "@/lib/db/invoices";
 import { logger } from "@/lib/logging/logger";
 import { incrementMetric } from "@/lib/observability/metrics";
+import { isQuickBooksMockMode } from "@/lib/env";
 import { fetchQuickBooksInvoices } from "@/lib/providers/quickbooks/client";
+import { getMockQuickBooksCompanyInfo, getMockQuickBooksInvoices } from "@/lib/providers/quickbooks/mock";
 import { getQuickBooksAccessContext } from "@/lib/providers/quickbooks/tokens";
 import { AppError, getErrorMessage } from "@/lib/utils/errors";
 
@@ -50,6 +53,7 @@ export async function syncQuickBooksOutstandingInvoices(
   const accessContext = await deps.getAccessContext(input.connectionId);
   const run = await deps.startRun({
     userId: accessContext.connection.userId,
+    organizationId: accessContext.connection.organizationId,
     connectionId: accessContext.connection.id,
     provider: Provider.QUICKBOOKS,
     trigger: input.trigger,
@@ -99,6 +103,7 @@ export async function syncQuickBooksOutstandingInvoices(
 
         await deps.upsertInvoice({
           userId: accessContext.connection.userId,
+          organizationId: accessContext.connection.organizationId,
           connectionId: accessContext.connection.id,
           quickBooksCompanyId: accessContext.company.id,
           providerInvoiceId: mapped.providerInvoiceId,
@@ -185,6 +190,54 @@ export async function syncQuickBooksOutstandingInvoicesForConnection(
   connectionId: string,
   trigger: SyncTrigger = "SYSTEM",
 ) {
+  const connection = await getConnectionWithSecrets(connectionId);
+
+  if (!connection) {
+    throw new AppError("QuickBooks connection not found.", 404, "CONNECTION_NOT_FOUND");
+  }
+
+  const connectionMode =
+    typeof connection.metadata === "object" &&
+    connection.metadata !== null &&
+    "mode" in connection.metadata
+      ? String((connection.metadata as Record<string, unknown>).mode)
+      : null;
+
+  if (isQuickBooksMockMode() || connectionMode === "mock") {
+    const company = connection.quickBooksCompany;
+    const mockCompany = getMockQuickBooksCompanyInfo();
+
+    if (!company) {
+      throw new AppError(
+        "Mock QuickBooks company is not initialized for this connection.",
+        409,
+        "MOCK_QUICKBOOKS_NOT_INITIALIZED",
+      );
+    }
+
+    return syncQuickBooksOutstandingInvoices(
+      {
+        getAccessContext: async () => ({
+          accessToken: "mock",
+          realmId: mockCompany.realmId,
+          company,
+          connection,
+        }),
+        fetchInvoices: async () => getMockQuickBooksInvoices(),
+        startRun: startSyncRun,
+        completeRun: completeSyncRun,
+        findExistingInvoices: findExistingImportedInvoices,
+        upsertInvoice: upsertImportedInvoice,
+        markSynced: markConnectionSynced,
+        markConnectionError,
+      },
+      {
+        connectionId,
+        trigger,
+      },
+    );
+  }
+
   return syncQuickBooksOutstandingInvoices(
     {
       getAccessContext: getQuickBooksAccessContext,

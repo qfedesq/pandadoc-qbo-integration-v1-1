@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { requireUser } from "@/lib/auth/require-user";
 import { getFactoringTransactionForUser } from "@/lib/db/factoring";
-import { formatDiscountRate } from "@/lib/factoring/offers";
+import { formatAdvanceRate, formatDiscountRate } from "@/lib/factoring/offers";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/utils";
 
 type Props = {
@@ -92,7 +92,7 @@ export default async function FactoringTransactionPage({ params }: Props) {
           </CardHeader>
           <CardContent className="space-y-3 text-sm text-muted-foreground">
             <p>
-              Gross balance:{" "}
+              Invoice balance:{" "}
               <span className="font-medium text-foreground">
                 {formatCurrency(
                   transaction.grossAmount.toString(),
@@ -101,9 +101,37 @@ export default async function FactoringTransactionPage({ params }: Props) {
               </span>
             </p>
             <p>
-              Discount:{" "}
+              Advance rate:{" "}
               <span className="font-medium text-foreground">
-                {formatDiscountRate(transaction.discountRateBps)}
+                {formatAdvanceRate(transaction.advanceRateBps)}
+              </span>
+            </p>
+            <p>
+              Advance amount:{" "}
+              <span className="font-medium text-foreground">
+                {formatCurrency(
+                  transaction.advanceAmount.toString(),
+                  transaction.settlementCurrency,
+                )}
+              </span>
+            </p>
+            <p>
+              Discount fee:{" "}
+              <span className="font-medium text-foreground">
+                {formatDiscountRate(transaction.discountRateBps)} ·{" "}
+                {formatCurrency(
+                  transaction.discountAmount.toString(),
+                  transaction.settlementCurrency,
+                )}
+              </span>
+            </p>
+            <p>
+              Protocol fee:{" "}
+              <span className="font-medium text-foreground">
+                {formatCurrency(
+                  transaction.operatorFeeAmount.toString(),
+                  transaction.settlementCurrency,
+                )}
               </span>
             </p>
             <p>
@@ -111,6 +139,15 @@ export default async function FactoringTransactionPage({ params }: Props) {
               <span className="font-medium text-foreground">
                 {formatCurrency(
                   transaction.netProceeds.toString(),
+                  transaction.settlementCurrency,
+                )}
+              </span>
+            </p>
+            <p>
+              Expected repayment:{" "}
+              <span className="font-medium text-foreground">
+                {formatCurrency(
+                  transaction.expectedRepaymentAmount.toString(),
                   transaction.settlementCurrency,
                 )}
               </span>
@@ -131,6 +168,7 @@ export default async function FactoringTransactionPage({ params }: Props) {
             <p>
               Settlement ref: {transaction.arenaSettlementReference ?? "Not issued"}
             </p>
+            <p>Risk tier: {transaction.riskTier}</p>
           </CardContent>
         </Card>
       </div>
@@ -159,10 +197,10 @@ export default async function FactoringTransactionPage({ params }: Props) {
             </div>
             <div>
               <span className="block text-xs font-semibold uppercase tracking-[0.2em]">
-                Due date
+                Maturity
               </span>
               <span className="mt-1 block font-medium text-foreground">
-                {formatDate(transaction.importedInvoice.dueDate)}
+                {formatDate(transaction.maturityDate ?? transaction.importedInvoice.dueDate)}
               </span>
             </div>
             <div>
@@ -208,6 +246,48 @@ export default async function FactoringTransactionPage({ params }: Props) {
           </CardContent>
         </Card>
       </div>
+
+      <Card className="border-border/70 shadow-panel">
+        <CardHeader>
+          <CardTitle>Ledger movements</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-3">
+            {transaction.walletLedgers.length === 0 ? (
+              <div className="rounded-[1.25rem] border border-dashed border-border p-4 text-sm text-muted-foreground">
+                No wallet ledger entries have been booked yet.
+              </div>
+            ) : (
+              transaction.walletLedgers.map((entry) => (
+                <div
+                  key={entry.id}
+                  className="rounded-[1.25rem] border border-border/70 bg-white/5 p-4"
+                >
+                  <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-foreground">
+                        {entry.description}
+                      </p>
+                      <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
+                        {entry.ownerType.replace(/_/g, " ")} · {entry.entryType.replace(/_/g, " ")}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm font-medium text-foreground">
+                        {entry.direction === "CREDIT" ? "+" : "-"}
+                        {formatCurrency(entry.amount.toString(), entry.currency)}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Balance after {formatCurrency(entry.balanceAfter.toString(), entry.currency)}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </CardContent>
+      </Card>
 
       <Card className="border-border/70 shadow-panel">
         <CardHeader>

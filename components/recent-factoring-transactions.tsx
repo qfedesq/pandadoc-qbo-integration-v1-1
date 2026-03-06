@@ -27,9 +27,9 @@ export function RecentFactoringTransactions({
     <Card className="border-border/70 shadow-panel">
       <CardHeader className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
         <div>
-          <CardTitle>Recent factoring transactions</CardTitle>
+          <CardTitle>Recent factoring positions</CardTitle>
           <p className="text-sm text-muted-foreground">
-            Track the managed-pool lifecycle from request to repayment.
+            Track each funded invoice from seller disbursement to pool repayment.
           </p>
         </div>
       </CardHeader>

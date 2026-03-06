@@ -7,8 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { requireUser } from "@/lib/auth/require-user";
 import { ensureFactoringOfferForUser } from "@/lib/factoring/transactions";
-import { formatDiscountRate } from "@/lib/factoring/offers";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { formatAdvanceRate, formatDiscountRate } from "@/lib/factoring/offers";
+import { formatCurrency, formatDate, formatDateTime } from "@/lib/utils";
 import { AppError } from "@/lib/utils/errors";
 
 type Props = {
@@ -134,15 +134,7 @@ export default async function WithdrawCapitalPage({ params }: Props) {
             <div className="grid gap-4 md:grid-cols-3">
               <div className="rounded-[1.25rem] border border-border/70 bg-white/5 p-4">
                 <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-                  Discount rate
-                </p>
-                <p className="mt-2 text-2xl font-semibold text-foreground">
-                  {formatDiscountRate(calculated.discountRateBps)}
-                </p>
-              </div>
-              <div className="rounded-[1.25rem] border border-border/70 bg-white/5 p-4">
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-                  Net proceeds
+                  Available now
                 </p>
                 <p className="mt-2 text-2xl font-semibold text-foreground">
                   {formatCurrency(calculated.netProceeds, calculated.settlementCurrency)}
@@ -150,10 +142,84 @@ export default async function WithdrawCapitalPage({ params }: Props) {
               </div>
               <div className="rounded-[1.25rem] border border-border/70 bg-white/5 p-4">
                 <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+                  Advance rate
+                </p>
+                <p className="mt-2 text-2xl font-semibold text-foreground">
+                  {formatAdvanceRate(calculated.advanceRateBps)}
+                </p>
+              </div>
+              <div className="rounded-[1.25rem] border border-border/70 bg-white/5 p-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+                  Risk tier
+                </p>
+                <p className="mt-2 text-2xl font-semibold text-foreground">
+                  {calculated.riskTier}
+                </p>
+              </div>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <div className="rounded-[1.25rem] border border-border/70 bg-white/5 p-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+                  Advance amount
+                </p>
+                <p className="mt-2 text-lg font-semibold text-foreground">
+                  {formatCurrency(calculated.advanceAmount, calculated.settlementCurrency)}
+                </p>
+              </div>
+              <div className="rounded-[1.25rem] border border-border/70 bg-white/5 p-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+                  Discount fee
+                </p>
+                <p className="mt-2 text-lg font-semibold text-foreground">
+                  {formatDiscountRate(calculated.discountRateBps)} ·{" "}
+                  {formatCurrency(calculated.discountAmount, calculated.settlementCurrency)}
+                </p>
+              </div>
+              <div className="rounded-[1.25rem] border border-border/70 bg-white/5 p-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+                  Protocol fee
+                </p>
+                <p className="mt-2 text-lg font-semibold text-foreground">
+                  {formatCurrency(calculated.operatorFeeAmount, calculated.settlementCurrency)}
+                </p>
+              </div>
+              <div className="rounded-[1.25rem] border border-border/70 bg-white/5 p-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+                  Expected repayment
+                </p>
+                <p className="mt-2 text-lg font-semibold text-foreground">
+                  {formatCurrency(
+                    calculated.expectedRepaymentAmount,
+                    calculated.settlementCurrency,
+                  )}
+                </p>
+              </div>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              <div className="rounded-[1.25rem] border border-border/70 bg-white/5 p-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
                   Settlement window
                 </p>
                 <p className="mt-2 text-sm font-medium text-foreground">
                   {calculated.settlementTimeSummary}
+                </p>
+              </div>
+              <div className="rounded-[1.25rem] border border-border/70 bg-white/5 p-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+                  Expected maturity
+                </p>
+                <p className="mt-2 text-sm font-medium text-foreground">
+                  {formatDate(calculated.expectedMaturityDate)}
+                </p>
+              </div>
+              <div className="rounded-[1.25rem] border border-border/70 bg-white/5 p-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+                  Estimated term
+                </p>
+                <p className="mt-2 text-sm font-medium text-foreground">
+                  {calculated.expectedTermDays ?? "—"} days
                 </p>
               </div>
             </div>
@@ -190,8 +256,7 @@ export default async function WithdrawCapitalPage({ params }: Props) {
             {activeTransaction ? (
               <div className="space-y-4 text-sm text-muted-foreground">
                 <p>
-                  This invoice already has an active factoring transaction in the
-                  pool.
+                  This invoice already has an active factoring position in the pool.
                 </p>
                 <Button asChild>
                   <Link href={`/factoring-dashboard/transactions/${activeTransaction.id}`}>
@@ -216,6 +281,21 @@ export default async function WithdrawCapitalPage({ params }: Props) {
           </CardContent>
         </Card>
       </div>
+
+      <Card className="border-border/70 shadow-panel">
+        <CardHeader>
+          <CardTitle>Offer notes</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3 text-sm text-muted-foreground">
+          {calculated.termsSnapshot.notes.map((note) => (
+            <p key={note}>{note}</p>
+          ))}
+          <p>
+            Offer refreshed at {formatDateTime(result.offer.generatedAt)} from the demo
+            managed pool.
+          </p>
+        </CardContent>
+      </Card>
     </div>
   );
 }

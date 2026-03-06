@@ -100,6 +100,7 @@ export function InvoiceTable({
                 </TableCell>
                 <TableCell>
                   <div className="space-y-2">
+                    <StatusBadge status={invoice.factoringLifecycleStatus} />
                     {latestTransaction ? (
                       <>
                         <StatusBadge status={latestTransaction.status} />
@@ -110,6 +111,13 @@ export function InvoiceTable({
                           Net{" "}
                           {formatCurrency(
                             latestTransaction.netProceeds.toString(),
+                            latestTransaction.settlementCurrency,
+                          )}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          Repays{" "}
+                          {formatCurrency(
+                            latestTransaction.expectedRepaymentAmount.toString(),
                             latestTransaction.settlementCurrency,
                           )}
                         </div>
@@ -125,6 +133,11 @@ export function InvoiceTable({
                               )}`
                             : "No terms generated yet"}
                         </div>
+                        {invoice.factoringOffer ? (
+                          <div className="text-xs text-muted-foreground">
+                            Advance {(invoice.factoringOffer.advanceRateBps / 100).toFixed(2)}%
+                          </div>
+                        ) : null}
                         {eligibility.reason ? (
                           <div className="max-w-56 text-xs text-muted-foreground">
                             {eligibility.reason}

@@ -1,10 +1,36 @@
 import { addMinutes } from "date-fns";
-import { AuthIdentityProvider } from "@prisma/client";
+import { AuthIdentityProvider, Prisma } from "@prisma/client";
 
 import { createUnavailablePasswordHash } from "@/lib/auth/passwords";
 import { prisma } from "@/lib/db/prisma";
 import { createOpaqueToken } from "@/lib/security/hash";
 import { toPrismaInputJsonObject } from "@/lib/utils/prisma-json";
+
+function buildOrganizationSlug(email: string) {
+  const localPart = email.split("@")[0] ?? "demo";
+  const normalized = localPart.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  return `org-${normalized}`.replace(/-+/g, "-").replace(/^-|-$/g, "");
+}
+
+async function ensureOrganizationForEmail(
+  tx: Prisma.TransactionClient,
+  email: string,
+) {
+  const slug = buildOrganizationSlug(email);
+
+  return tx.organization.upsert({
+    where: {
+      slug,
+    },
+    update: {
+      name: `${slug.replace(/^org-/, "").replace(/-/g, " ")} workspace`,
+    },
+    create: {
+      slug,
+      name: `${slug.replace(/^org-/, "").replace(/-/g, " ")} workspace`,
+    },
+  });
+}
 
 export type AuthLoginStateClaimResult =
   | {
@@ -144,6 +170,7 @@ export async function upsertGoogleUserIdentity(input: {
   const normalizedEmail = input.email.toLowerCase();
 
   return prisma.$transaction(async (tx) => {
+    const organization = await ensureOrganizationForEmail(tx, normalizedEmail);
     const existingIdentity = await tx.userIdentity.findUnique({
       where: {
         provider_providerUserId: {
@@ -165,6 +192,7 @@ export async function upsertGoogleUserIdentity(input: {
         data: {
           email: normalizedEmail,
           name: input.displayName ?? undefined,
+          organizationId: organization.id,
         },
       });
 
@@ -190,11 +218,13 @@ export async function upsertGoogleUserIdentity(input: {
       },
       update: {
         name: input.displayName ?? undefined,
+        organizationId: organization.id,
       },
       create: {
         email: normalizedEmail,
         name: input.displayName ?? null,
         passwordHash: placeholderPasswordHash,
+        organizationId: organization.id,
       },
     });
 
