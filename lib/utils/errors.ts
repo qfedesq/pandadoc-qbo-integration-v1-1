@@ -26,10 +26,12 @@ const DATABASE_UNAVAILABLE_PATTERNS = [
   /can't reach database server/i,
   /server has closed the connection/i,
   /connection (?:closed|terminated|reset)/i,
+  /does not exist in the current database/i,
   /\bECONNRESET\b/i,
   /\bECONNREFUSED\b/i,
   /\bETIMEDOUT\b/i,
   /\bP1001\b/i,
+  /\bP2021\b/i,
 ];
 
 export function isDatabaseUnavailableError(error: unknown) {

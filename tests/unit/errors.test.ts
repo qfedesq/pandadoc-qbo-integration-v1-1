@@ -25,4 +25,18 @@ describe("database availability errors", () => {
       code: "INTERNAL_SERVER_ERROR",
     });
   });
+
+  it("treats missing migrated tables as database unavailability", () => {
+    const error = new Error(
+      "Invalid `prisma.appSession.findFirst()` invocation:\n\nThe table `public.app_sessions` does not exist in the current database.",
+    );
+
+    expect(isDatabaseUnavailableError(error)).toBe(true);
+    expect(getPublicError(error)).toEqual({
+      message:
+        "Service temporarily unavailable. The application database is not reachable.",
+      statusCode: 503,
+      code: "DATABASE_UNAVAILABLE",
+    });
+  });
 });
