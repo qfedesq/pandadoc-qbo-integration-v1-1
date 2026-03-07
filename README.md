@@ -1,4 +1,4 @@
-# pandadoc-qbo-integration v1.13
+# pandadoc-qbo-integration v1.14
 
 Production-style MVP for an embedded invoice factoring product inside a PandaDoc workflow. The application connects PandaDoc and QuickBooks, imports receivables, calculates factoring offers, funds eligible invoices from a managed capital pool, credits a demo USDC ledger, simulates repayment, and records pool yield plus platform fees with a full audit trail.
 
